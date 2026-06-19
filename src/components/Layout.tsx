@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { useState } from 'react';
 import Sidebar from './Sidebar';
+import QuickCapture from './QuickCapture';
 import { Menu } from 'lucide-react';
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -23,6 +24,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+      <QuickCapture />
     </div>
   );
 }

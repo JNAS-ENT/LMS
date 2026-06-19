@@ -15,11 +15,13 @@ import {
   X,
   Brain,
   Archive,
+  Sparkles,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/knowledge', icon: BookOpen, label: 'Knowledge Base' },
+  { to: '/syllabus-generator', icon: Sparkles, label: 'Syllabus Generator' },
   { to: '/journal', icon: CalendarDays, label: 'Daily Journal' },
   { to: '/code', icon: Code2, label: 'Code Vault' },
   { to: '/papers', icon: FileText, label: 'Research Papers' },

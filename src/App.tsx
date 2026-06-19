@@ -14,6 +14,7 @@ const QuickNotes = lazy(() => import('./pages/QuickNotes'));
 const Search = lazy(() => import('./pages/Search'));
 const Settings = lazy(() => import('./pages/Settings'));
 const RecycleBin = lazy(() => import('./pages/RecycleBin'));
+const SyllabusGenerator = lazy(() => import('./pages/SyllabusGenerator'));
 
 function Loading() {
   return (
@@ -29,6 +30,7 @@ function VaultRoutes() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/knowledge" element={<KnowledgeBase />} />
+        <Route path="/syllabus-generator" element={<SyllabusGenerator />} />
         <Route path="/journal" element={<DailyJournal />} />
         <Route path="/code" element={<CodeVault />} />
         <Route path="/papers" element={<ResearchPapers />} />

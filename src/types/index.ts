@@ -17,6 +17,7 @@ export interface Subject {
   name: string;
   description: string;
   display_order: number;
+  tags: string[];
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -28,6 +29,7 @@ export interface Module {
   name: string;
   description: string;
   display_order: number;
+  tags: string[];
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -42,6 +44,7 @@ export interface Topic {
   status: LearningStatus;
   progress: number;
   notes_content: string;
+  tags: string[];
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -56,6 +59,7 @@ export interface Subtopic {
   status: LearningStatus;
   progress: number;
   notes_content: string;
+  tags: string[];
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -69,8 +73,8 @@ export type SyllabusNode =
 
 // ─── Activity Log ──────────────────────────────────────────────
 
-export type ActivityAction = 'create' | 'update' | 'delete' | 'restore' | 'rename' | 'move';
-export type EntityType = 'subject' | 'module' | 'topic' | 'subtopic';
+export type ActivityAction = 'create' | 'update' | 'delete' | 'restore' | 'rename' | 'move' | 'solve' | 'revise' | 'add_note' | 'add_question' | 'add_resource' | 'add_highlight';
+export type EntityType = 'subject' | 'module' | 'topic' | 'subtopic' | 'note' | 'question' | 'resource' | 'highlight' | 'revision';
 
 export interface ActivityLogEntry {
   id: string;
@@ -85,7 +89,21 @@ export interface ActivityLogEntry {
 // ─── Topic workspace ──────────────────────────────────────────
 
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
-export type ResourceType = 'Google Drive' | 'PDF' | 'YouTube' | 'GitHub' | 'Website' | 'Dataset';
+export type QuestionStatus = 'Open' | 'Researching' | 'Solved';
+export type ResourceType = 'Google Drive' | 'PDF' | 'YouTube' | 'GitHub' | 'Website' | 'Dataset' | 'Research Paper';
+export type HighlightType = 'Key Concept' | 'Formula' | 'Interview Question' | 'Important Note';
+
+export interface TopicNote {
+  id: string;
+  topic_id: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface TopicQuestion {
   id: string;
@@ -93,6 +111,8 @@ export interface TopicQuestion {
   question: string;
   answer: string;
   difficulty: Difficulty;
+  status: QuestionStatus;
+  tags: string[];
   display_order: number;
   created_at: string;
   updated_at: string;
@@ -104,6 +124,8 @@ export interface TopicResource {
   title: string;
   url: string;
   resource_type: ResourceType;
+  description: string;
+  tags: string[];
   display_order: number;
   created_at: string;
   updated_at: string;
@@ -134,9 +156,55 @@ export interface TopicHighlight {
   id: string;
   topic_id: string;
   content: string;
+  highlight_type: HighlightType;
+  tags: string[];
   display_order: number;
   created_at: string;
   updated_at: string;
+}
+
+// ─── Tags & Relationships ──────────────────────────────────────
+
+export interface Tag {
+  id: string;
+  name: string;
+  color: string;
+  created_at: string;
+}
+
+export interface ItemTag {
+  id: string;
+  tag_id: string;
+  entity_type: EntityType;
+  entity_id: string;
+  created_at: string;
+}
+
+export type RelationshipType = 'related' | 'prerequisite' | 'extension' | 'alternative';
+
+export interface TopicRelationship {
+  id: string;
+  topic_id_a: string;
+  topic_id_b: string;
+  relationship_type: RelationshipType;
+  created_at: string;
+}
+
+export interface RelatedTopic {
+  id: string;
+  name: string;
+  relationship_type: RelationshipType;
+  related_topic_id: string;
+}
+
+export interface GlobalSearchResult {
+  type: 'subject' | 'module' | 'topic' | 'subtopic' | 'note' | 'question' | 'resource' | 'highlight';
+  id: string;
+  title: string;
+  subtitle?: string;
+  tags: string[];
+  matchedField: string;
+  parentPath?: string;
 }
 
 export interface JournalEntry {

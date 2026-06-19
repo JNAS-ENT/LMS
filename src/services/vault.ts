@@ -14,6 +14,7 @@ import type {
   Topic,
   Subtopic,
   SyllabusNode,
+  TopicNote,
   TopicQuestion,
   TopicResource,
   TopicRevision,
@@ -23,6 +24,11 @@ import type {
   ActivityAction,
   EntityType,
   DeletedItem,
+  Tag,
+  TopicRelationship,
+  RelationshipType,
+  RelatedTopic,
+  GlobalSearchResult,
 } from '../types';
 
 // ─── Notes ─────────────────────────────────────────────────────
@@ -249,43 +255,6 @@ export interface SearchResult {
   updated_at: string;
 }
 
-export async function globalSearch(query: string): Promise<SearchResult[]> {
-  if (!query.trim()) return [];
-  const pattern = `%${query}%`;
-  const results: SearchResult[] = [];
-
-  const searches: { table: string; type: SearchResult['type']; titleCol: string; subtitleCol: string; extraFilter?: string }[] = [
-    { table: 'subjects', type: 'subject', titleCol: 'name', subtitleCol: 'description', extraFilter: 'deleted_at IS NULL' },
-    { table: 'modules', type: 'module', titleCol: 'name', subtitleCol: 'description', extraFilter: 'deleted_at IS NULL' },
-    { table: 'topics', type: 'topic', titleCol: 'name', subtitleCol: 'description', extraFilter: 'deleted_at IS NULL' },
-    { table: 'notes', type: 'note', titleCol: 'title', subtitleCol: 'category' },
-    { table: 'journal_entries', type: 'journal', titleCol: 'entry_date', subtitleCol: 'topics_learned' },
-    { table: 'code_snippets', type: 'code', titleCol: 'title', subtitleCol: 'language' },
-    { table: 'research_papers', type: 'paper', titleCol: 'title', subtitleCol: 'authors' },
-    { table: 'projects', type: 'project', titleCol: 'name', subtitleCol: 'status' },
-    { table: 'bookmarks', type: 'bookmark', titleCol: 'title', subtitleCol: 'category' },
-  ];
-
-  const promises = searches.map(async (s) => {
-    let q = supabase.from(s.table).select(`id, ${s.titleCol}, ${s.subtitleCol}, updated_at`).ilike(s.titleCol, pattern).limit(10);
-    const { data, error } = await q;
-    if (!error && data) {
-      data.forEach((row: Record<string, unknown>) => {
-        results.push({
-          type: s.type,
-          id: row.id as string,
-          title: String(row[s.titleCol]),
-          subtitle: String(row[s.subtitleCol] || ''),
-          updated_at: row.updated_at as string,
-        });
-      });
-    }
-  });
-
-  await Promise.all(promises);
-  return results.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-}
-
 // ─── Syllabus ──────────────────────────────────────────────────
 
 export async function fetchSyllabusTree(): Promise<SyllabusNode[]> {
@@ -332,7 +301,7 @@ export async function fetchSyllabusCounts(): Promise<{ subjects: number; modules
 
 // ─── Activity Log ────────────────────────────────────────────────
 
-async function logActivity(entityType: EntityType, entityId: string, entityName: string, action: ActivityAction, details: Record<string, unknown> = {}): Promise<void> {
+export async function logActivity(entityType: EntityType, entityId: string, entityName: string, action: ActivityAction, details: Record<string, unknown> = {}): Promise<void> {
   await supabase.from('activity_log').insert({ entity_type: entityType, entity_id: entityId, entity_name: entityName, action, details });
 }
 
@@ -340,6 +309,58 @@ export async function fetchActivityLog(limit = 20): Promise<ActivityLogEntry[]> 
   const { data, error } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(limit);
   if (error) throw error;
   return data ?? [];
+}
+
+export async function fetchActivityStats(): Promise<{ today: number; week: number; month: number; notes: number; questions: number; resources: number; highlights: number; revisions: number }> {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
+  const monthStart = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).toISOString();
+
+  const [todayData, weekData, monthData] = await Promise.all([
+    supabase.from('activity_log').select('action', { count: 'exact' }).gte('created_at', todayStart),
+    supabase.from('activity_log').select('action', { count: 'exact' }).gte('created_at', weekStart),
+    supabase.from('activity_log').select('action', { count: 'exact' }).gte('created_at', monthStart),
+  ]);
+
+  // Count by action type for timeline
+  const [notesData, questionsData, resourcesData, highlightsData, revisionsData] = await Promise.all([
+    supabase.from('activity_log').select('id', { count: 'exact', head: true }).eq('action', 'add_note'),
+    supabase.from('activity_log').select('id', { count: 'exact', head: true }).eq('action', 'solve'),
+    supabase.from('activity_log').select('id', { count: 'exact', head: true }).eq('action', 'add_resource'),
+    supabase.from('activity_log').select('id', { count: 'exact', head: true }).eq('action', 'add_highlight'),
+    supabase.from('activity_log').select('id', { count: 'exact', head: true }).eq('action', 'revise'),
+  ]);
+
+  return {
+    today: todayData.count ?? 0,
+    week: weekData.count ?? 0,
+    month: monthData.count ?? 0,
+    notes: notesData.count ?? 0,
+    questions: questionsData.count ?? 0,
+    resources: resourcesData.count ?? 0,
+    highlights: highlightsData.count ?? 0,
+    revisions: revisionsData.count ?? 0,
+  };
+}
+
+export async function fetchContentStats(): Promise<{ notes: number; questions: number; resources: number; highlights: number; revisions: number; codeSnippets: number }> {
+  const [notes, questions, resources, highlights, revisions, codeSnippets] = await Promise.all([
+    supabase.from('topic_notes').select('id', { count: 'exact', head: true }),
+    supabase.from('topic_questions').select('id', { count: 'exact', head: true }),
+    supabase.from('topic_resources').select('id', { count: 'exact', head: true }),
+    supabase.from('topic_highlights').select('id', { count: 'exact', head: true }),
+    supabase.from('topic_revisions').select('id', { count: 'exact', head: true }),
+    supabase.from('topic_code').select('id', { count: 'exact', head: true }),
+  ]);
+  return {
+    notes: notes.count ?? 0,
+    questions: questions.count ?? 0,
+    resources: resources.count ?? 0,
+    highlights: highlights.count ?? 0,
+    revisions: revisions.count ?? 0,
+    codeSnippets: codeSnippets.count ?? 0,
+  };
 }
 
 // ─── Subject CRUD ──────────────────────────────────────────────────
@@ -574,32 +595,38 @@ export async function permanentDeleteItem(id: string, type: EntityType): Promise
 // ─── Export / Import ───────────────────────────────────────────────
 
 export async function exportSyllabusJSON(): Promise<string> {
-  const [subjects, modules, topics, subtopics, questions, resources, revisions, code, highlights, notes] = await Promise.all([
+  const [subjects, modules, topics, subtopics, topicNotes, questions, resources, revisions, code, highlights, notes, tags, relationships] = await Promise.all([
     supabase.from('subjects').select('*'),
     supabase.from('modules').select('*'),
     supabase.from('topics').select('*'),
     supabase.from('subtopics').select('*'),
+    supabase.from('topic_notes').select('*'),
     supabase.from('topic_questions').select('*'),
     supabase.from('topic_resources').select('*'),
     supabase.from('topic_revisions').select('*'),
     supabase.from('topic_code').select('*'),
     supabase.from('topic_highlights').select('*'),
     supabase.from('notes').select('*'),
+    supabase.from('tags').select('*'),
+    supabase.from('topic_relationships').select('*'),
   ]);
 
   const exportData = {
-    version: '1.0',
+    version: '1.2',
     exportedAt: new Date().toISOString(),
     subjects: subjects.data ?? [],
     modules: modules.data ?? [],
     topics: topics.data ?? [],
     subtopics: subtopics.data ?? [],
+    topic_notes: topicNotes.data ?? [],
     topic_questions: questions.data ?? [],
     topic_resources: resources.data ?? [],
     topic_revisions: revisions.data ?? [],
     topic_code: code.data ?? [],
     topic_highlights: highlights.data ?? [],
     notes: notes.data ?? [],
+    tags: tags.data ?? [],
+    topic_relationships: relationships.data ?? [],
   };
 
   return JSON.stringify(exportData, null, 2);
@@ -622,15 +649,18 @@ export async function importSyllabusJSON(json: string): Promise<{ success: boole
   }
 
   // Clear existing data (order matters for foreign keys)
+  await supabase.from('topic_relationships').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('topic_highlights').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('topic_code').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('topic_revisions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('topic_resources').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await supabase.from('topic_notes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('topic_questions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('subtopics').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('topics').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('modules').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('subjects').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await supabase.from('tags').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('notes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
   // Insert new data (order matters for foreign keys)
@@ -652,17 +682,44 @@ export async function importSyllabusJSON(json: string): Promise<{ success: boole
   await insertSafe('modules', data.modules);
   await insertSafe('topics', data.topics);
   await insertSafe('subtopics', data.subtopics);
+  await insertSafe('topic_notes', data.topic_notes);
   await insertSafe('topic_questions', data.topic_questions);
   await insertSafe('topic_resources', data.topic_resources);
   await insertSafe('topic_revisions', data.topic_revisions);
   await insertSafe('topic_code', data.topic_code);
   await insertSafe('topic_highlights', data.topic_highlights);
   await insertSafe('notes', data.notes);
+  await insertSafe('tags', data.tags);
+  await insertSafe('topic_relationships', data.topic_relationships);
 
   return { success: true, message: `Imported ${data.subjects.length} subjects, ${data.modules?.length ?? 0} modules, ${data.topics?.length ?? 0} topics.` };
 }
 
 // ─── Topic Workspace ────────────────────────────────────────────
+
+// Topic Notes
+export async function fetchTopicNotes(topicId: string): Promise<TopicNote[]> {
+  const { data, error } = await supabase.from('topic_notes').select('*').eq('topic_id', topicId).order('display_order');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTopicNote(topicId: string, title: string, content = '', category = 'General', displayOrder = 0): Promise<TopicNote> {
+  const { data, error } = await supabase.from('topic_notes').insert({ topic_id: topicId, title, content, category, display_order: displayOrder }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTopicNote(id: string, updates: Partial<Pick<TopicNote, 'title' | 'content' | 'category' | 'display_order'>>): Promise<TopicNote> {
+  const { data, error } = await supabase.from('topic_notes').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTopicNote(id: string): Promise<void> {
+  const { error } = await supabase.from('topic_notes').delete().eq('id', id);
+  if (error) throw error;
+}
 
 // Questions
 export async function fetchTopicQuestions(topicId: string): Promise<TopicQuestion[]> {
@@ -671,13 +728,13 @@ export async function fetchTopicQuestions(topicId: string): Promise<TopicQuestio
   return data ?? [];
 }
 
-export async function createTopicQuestion(topicId: string, question: string, answer = '', difficulty: TopicQuestion['difficulty'] = 'Medium', displayOrder = 0): Promise<TopicQuestion> {
-  const { data, error } = await supabase.from('topic_questions').insert({ topic_id: topicId, question, answer, difficulty, display_order: displayOrder }).select().single();
+export async function createTopicQuestion(topicId: string, question: string, answer = '', difficulty: TopicQuestion['difficulty'] = 'Medium', status: TopicQuestion['status'] = 'Open', displayOrder = 0): Promise<TopicQuestion> {
+  const { data, error } = await supabase.from('topic_questions').insert({ topic_id: topicId, question, answer, difficulty, status, display_order: displayOrder }).select().single();
   if (error) throw error;
   return data;
 }
 
-export async function updateTopicQuestion(id: string, updates: Partial<Pick<TopicQuestion, 'question' | 'answer' | 'difficulty' | 'display_order'>>): Promise<TopicQuestion> {
+export async function updateTopicQuestion(id: string, updates: Partial<Pick<TopicQuestion, 'question' | 'answer' | 'difficulty' | 'status' | 'display_order'>>): Promise<TopicQuestion> {
   const { data, error } = await supabase.from('topic_questions').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
   if (error) throw error;
   return data;
@@ -695,13 +752,13 @@ export async function fetchTopicResources(topicId: string): Promise<TopicResourc
   return data ?? [];
 }
 
-export async function createTopicResource(topicId: string, title: string, url: string, resourceType: TopicResource['resource_type'] = 'URL', displayOrder = 0): Promise<TopicResource> {
-  const { data, error } = await supabase.from('topic_resources').insert({ topic_id: topicId, title, url, resource_type: resourceType, display_order: displayOrder }).select().single();
+export async function createTopicResource(topicId: string, title: string, url: string, resourceType: TopicResource['resource_type'] = 'Website', description = '', displayOrder = 0): Promise<TopicResource> {
+  const { data, error } = await supabase.from('topic_resources').insert({ topic_id: topicId, title, url, resource_type: resourceType, description, display_order: displayOrder }).select().single();
   if (error) throw error;
   return data;
 }
 
-export async function updateTopicResource(id: string, updates: Partial<Pick<TopicResource, 'title' | 'url' | 'resource_type' | 'display_order'>>): Promise<TopicResource> {
+export async function updateTopicResource(id: string, updates: Partial<Pick<TopicResource, 'title' | 'url' | 'resource_type' | 'description' | 'display_order'>>): Promise<TopicResource> {
   const { data, error } = await supabase.from('topic_resources').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
   if (error) throw error;
   return data;
@@ -794,13 +851,13 @@ export async function fetchTopicHighlights(topicId: string): Promise<TopicHighli
   return data ?? [];
 }
 
-export async function createTopicHighlight(topicId: string, content: string, displayOrder = 0): Promise<TopicHighlight> {
-  const { data, error } = await supabase.from('topic_highlights').insert({ topic_id: topicId, content, display_order: displayOrder }).select().single();
+export async function createTopicHighlight(topicId: string, content: string, highlightType: TopicHighlight['highlight_type'] = 'Key Concept', displayOrder = 0): Promise<TopicHighlight> {
+  const { data, error } = await supabase.from('topic_highlights').insert({ topic_id: topicId, content, highlight_type: highlightType, display_order: displayOrder }).select().single();
   if (error) throw error;
   return data;
 }
 
-export async function updateTopicHighlight(id: string, updates: Partial<Pick<TopicHighlight, 'content' | 'display_order'>>): Promise<TopicHighlight> {
+export async function updateTopicHighlight(id: string, updates: Partial<Pick<TopicHighlight, 'content' | 'highlight_type' | 'display_order'>>): Promise<TopicHighlight> {
   const { data, error } = await supabase.from('topic_highlights').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
   if (error) throw error;
   return data;
@@ -975,4 +1032,219 @@ export async function importSyllabusText(text: string): Promise<void> {
     topicOrder = 0;
     await processItem(root);
   }
+}
+
+// ─── Tags ──────────────────────────────────────────────────────
+
+export async function fetchAllTags(): Promise<Tag[]> {
+  const { data, error } = await supabase.from('tags').select('*').order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTag(name: string, color = '#6366f1'): Promise<Tag> {
+  const { data, error } = await supabase.from('tags').insert({ name: name.toLowerCase().trim(), color }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTag(id: string, updates: Partial<Pick<Tag, 'name' | 'color'>>): Promise<Tag> {
+  const { data, error } = await supabase.from('tags').update({ ...updates }).eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTag(id: string): Promise<void> {
+  const { error } = await supabase.from('tags').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function searchTags(query: string): Promise<Tag[]> {
+  const { data, error } = await supabase.from('tags').select('*').ilike('name', `%${query.toLowerCase()}%`).order('name').limit(20);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ─── Topic Relationships ─────────────────────────────────────────
+
+export async function fetchTopicRelationships(topicId: string): Promise<RelatedTopic[]> {
+  const { data, error } = await supabase
+    .from('topic_relationships')
+    .select('id, topic_id_a, topic_id_b, relationship_type')
+    .or(`topic_id_a.eq.${topicId},topic_id_b.eq.${topicId}`);
+  if (error) throw error;
+
+  if (!data || data.length === 0) return [];
+
+  const relatedIds = data.map(r => r.topic_id_a === topicId ? r.topic_id_b : r.topic_id_a);
+  const { data: topics } = await supabase.from('topics').select('id, name').in('id', relatedIds);
+
+  const topicMap = new Map((topics ?? []).map(t => [t.id, t.name]));
+
+  return data.map(r => {
+    const isA = r.topic_id_a === topicId;
+    return {
+      id: r.id,
+      name: topicMap.get(isA ? r.topic_id_b : r.topic_id_a) || 'Unknown',
+      relationship_type: r.relationship_type as RelationshipType,
+      related_topic_id: isA ? r.topic_id_b : r.topic_id_a,
+    };
+  });
+}
+
+export async function createTopicRelationship(topicIdA: string, topicIdB: string, relationshipType: RelationshipType = 'related'): Promise<TopicRelationship> {
+  const [a, b] = topicIdA < topicIdB ? [topicIdA, topicIdB] : [topicIdB, topicIdA];
+  const { data, error } = await supabase.from('topic_relationships').insert({ topic_id_a: a, topic_id_b: b, relationship_type: relationshipType }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTopicRelationship(id: string): Promise<void> {
+  const { error } = await supabase.from('topic_relationships').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function searchTopicsForRelationship(query: string, excludeId: string): Promise<{ id: string; name: string; moduleName?: string; subjectName?: string }[]> {
+  const { data, error } = await supabase
+    .from('topics')
+    .select('id, name, modules!inner(id, name, subjects!inner(id, name))')
+    .ilike('name', `%${query}%`)
+    .neq('id', excludeId)
+    .is('deleted_at', null)
+    .limit(20);
+  if (error) throw error;
+
+  return (data ?? []).map((t: any) => ({
+    id: t.id,
+    name: t.name,
+    moduleName: t.modules?.name,
+    subjectName: t.modules?.subjects?.name,
+  }));
+}
+
+// ─── Global Search ──────────────────────────────────────────────
+
+export async function globalSearch(query: string): Promise<GlobalSearchResult[]> {
+  if (!query.trim()) return [];
+  const q = query.toLowerCase();
+  const results: GlobalSearchResult[] = [];
+
+  const { data: subjects } = await supabase.from('subjects').select('id, name, tags').ilike('name', `%${q}%`).is('deleted_at', null).limit(10);
+  (subjects ?? []).forEach((s: any) => {
+    results.push({ type: 'subject', id: s.id, title: s.name, tags: s.tags || [], matchedField: 'name' });
+  });
+
+  const { data: modules } = await supabase.from('modules').select('id, name, tags, subjects!inner(name)').ilike('name', `%${q}%`).is('deleted_at', null).limit(10);
+  (modules ?? []).forEach((m: any) => {
+    results.push({ type: 'module', id: m.id, title: m.name, tags: m.tags || [], matchedField: 'name', parentPath: m.subjects?.name });
+  });
+
+  const { data: topics } = await supabase.from('topics').select('id, name, tags, modules!inner(name, subjects!inner(name))').ilike('name', `%${q}%`).is('deleted_at', null).limit(10);
+  (topics ?? []).forEach((t: any) => {
+    results.push({ type: 'topic', id: t.id, title: t.name, tags: t.tags || [], matchedField: 'name', parentPath: `${t.modules?.subjects?.name} > ${t.modules?.name}` });
+  });
+
+  const { data: subtopics } = await supabase.from('subtopics').select('id, name, tags, topics!inner(name, modules!inner(name, subjects!inner(name)))').ilike('name', `%${q}%`).is('deleted_at', null).limit(10);
+  (subtopics ?? []).forEach((st: any) => {
+    results.push({ type: 'subtopic', id: st.id, title: st.name, tags: st.tags || [], matchedField: 'name', parentPath: `${st.topics?.modules?.subjects?.name} > ${st.topics?.modules?.name} > ${st.topics?.name}` });
+  });
+
+  const { data: notes } = await supabase.from('topic_notes').select('id, title, tags, topic_id, topics!inner(name)').or(`title.ilike.%${q}%,content.ilike.%${q}%`).limit(10);
+  (notes ?? []).forEach((n: any) => {
+    results.push({ type: 'note', id: n.id, title: n.title || 'Untitled Note', subtitle: n.topics?.name, tags: n.tags || [], matchedField: 'content' });
+  });
+
+  const { data: questions } = await supabase.from('topic_questions').select('id, question, tags, topic_id, topics!inner(name)').ilike('question', `%${q}%`).limit(10);
+  (questions ?? []).forEach((qItem: any) => {
+    results.push({ type: 'question', id: qItem.id, title: qItem.question, subtitle: qItem.topics?.name, tags: qItem.tags || [], matchedField: 'question' });
+  });
+
+  const { data: resources } = await supabase.from('topic_resources').select('id, title, url, tags, topic_id, topics!inner(name)').or(`title.ilike.%${q}%,url.ilike.%${q}%`).limit(10);
+  (resources ?? []).forEach((r: any) => {
+    results.push({ type: 'resource', id: r.id, title: r.title, subtitle: r.topics?.name, tags: r.tags || [], matchedField: 'title' });
+  });
+
+  const { data: highlights } = await supabase.from('topic_highlights').select('id, content, tags, highlight_type, topic_id, topics!inner(name)').ilike('content', `%${q}%`).limit(10);
+  (highlights ?? []).forEach((h: any) => {
+    results.push({ type: 'highlight', id: h.id, title: h.content.slice(0, 60) + (h.content.length > 60 ? '...' : ''), subtitle: `${h.highlight_type} - ${h.topics?.name}`, tags: h.tags || [], matchedField: 'content' });
+  });
+
+  return results;
+}
+
+// ─── Tag Statistics ─────────────────────────────────────────────
+
+export async function fetchMostUsedTags(limit = 10): Promise<{ name: string; count: number }[]> {
+  const { data: topicTags } = await supabase.from('topics').select('tags').is('deleted_at', null);
+  const { data: noteTags } = await supabase.from('topic_notes').select('tags');
+  const { data: questionTags } = await supabase.from('topic_questions').select('tags');
+  const { data: resourceTags } = await supabase.from('topic_resources').select('tags');
+  const { data: highlightTags } = await supabase.from('topic_highlights').select('tags');
+
+  const tagCounts: Record<string, number> = {};
+
+  const countTags = (items: any[] | null) => {
+    (items ?? []).forEach(item => {
+      (item.tags || []).forEach((tag: string) => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      });
+    });
+  };
+
+  countTags(topicTags);
+  countTags(noteTags);
+  countTags(questionTags);
+  countTags(resourceTags);
+  countTags(highlightTags);
+
+  return Object.entries(tagCounts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
+export async function fetchRecentlyUpdatedTopics(limit = 5): Promise<{ id: string; name: string; subjectName: string; updated_at: string }[]> {
+  const { data, error } = await supabase
+    .from('topics')
+    .select('id, name, updated_at, modules!inner(name, subjects!inner(name))')
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+
+  return (data ?? []).map((t: any) => ({
+    id: t.id,
+    name: t.name,
+    subjectName: t.modules?.subjects?.name || '',
+    updated_at: t.updated_at,
+  }));
+}
+
+export async function fetchMostReferencedTopics(limit = 5): Promise<{ id: string; name: string; subjectName: string; referenceCount: number }[]> {
+  const { data, error } = await supabase
+    .from('topic_relationships')
+    .select('topic_id_a, topic_id_b, topics_a:topics!topic_relationships_topic_id_a_fkey(id, name, modules!inner(name, subjects!inner(name))), topics_b:topics!topic_relationships_topic_id_b_fkey(id, name, modules!inner(name, subjects!inner(name)))');
+  if (error) throw error;
+
+  const counts: Record<string, { name: string; subjectName: string; count: number }> = {};
+
+  (data ?? []).forEach((r: any) => {
+    const idA = r.topic_id_a;
+    const idB = r.topic_id_b;
+
+    if (!counts[idA] && r.topics_a) {
+      counts[idA] = { name: r.topics_a.name, subjectName: r.topics_a.modules?.subjects?.name || '', count: 0 };
+    }
+    if (!counts[idB] && r.topics_b) {
+      counts[idB] = { name: r.topics_b.name, subjectName: r.topics_b.modules?.subjects?.name || '', count: 0 };
+    }
+
+    if (counts[idA]) counts[idA].count++;
+    if (counts[idB]) counts[idB].count++;
+  });
+
+  return Object.entries(counts)
+    .map(([id, data]) => ({ id, ...data, referenceCount: data.count }))
+    .sort((a, b) => b.referenceCount - a.referenceCount)
+    .slice(0, limit);
 }
