@@ -25,13 +25,12 @@ export async function createBackup(
   backupType: BackupType,
   provider?: GoogleDriveProvider
 ): Promise<BackupResult> {
-  console.log('[BACKUP] createBackup: Starting', backupType, 'backup...');
+  console.log('[BACKUP] Step 0 - createBackup entered');
   const startTime = performance.now();
   let backupId: string | null = null;
 
   try {
-    // Create backup history record
-    console.log('[BACKUP] createBackup: Creating backup history record...');
+    console.log('[BACKUP] Step 1 - inserting backup_history');
     const { data: history, error: historyError } = await supabase
       .from('backup_history')
       .insert({
@@ -45,23 +44,22 @@ export async function createBackup(
       .single();
 
     if (historyError) {
-      console.error('[BACKUP] createBackup: Failed to create backup record:', historyError);
+      console.error('[BACKUP ERROR]', historyError);
       throw new Error(`Failed to create backup record: ${historyError.message}`);
     }
 
+    console.log('[BACKUP] Step 2 - backup_history inserted', history?.id);
     backupId = history.id;
-    console.log('[BACKUP] createBackup: Backup record created with ID:', backupId);
 
-    // Generate JSON backup
-    console.log('[BACKUP] createBackup: Generating JSON backup...');
+    console.log('[BACKUP] Step 3 - exportVaultPackage start');
     const { json, filename, checksum } = await exportVaultPackage();
-    const parsedPackage: VaultPackage = JSON.parse(json);
-    console.log('[BACKUP] createBackup: JSON generated, size:', new Blob([json]).size, 'bytes');
+    console.log('[BACKUP] Step 4 - exportVaultPackage success');
 
-    // Generate PDF backup
-    console.log('[BACKUP] createBackup: Generating PDF backup...');
+    const parsedPackage: VaultPackage = JSON.parse(json);
+
+    console.log('[BACKUP] Step 5 - generatePDFBackup start');
     const pdfBackup = await generatePDFBackup(parsedPackage, backupType);
-    console.log('[BACKUP] createBackup: PDF generated, size:', pdfBackup.sizeBytes, 'bytes');
+    console.log('[BACKUP] Step 6 - generatePDFBackup success');
 
     let jsonUploaded = false;
     let pdfUploaded = false;
@@ -69,71 +67,55 @@ export async function createBackup(
     let googleDriveFileId: string | null = null;
     let pdfFileId: string | null = null;
 
-    // Upload to Google Drive if provider is connected
     if (provider) {
-      console.log('[BACKUP] createBackup: Provider connected, checking folder structure...');
-
-      // Ensure folder structure exists
       let folderId = provider.getFolderId(backupType === 'daily' ? 'daily' : backupType === 'weekly' ? 'weekly' : 'monthly');
-      console.log('[BACKUP] createBackup: Folder ID for', backupType, ':', folderId);
 
       if (!folderId) {
-        console.log('[BACKUP] createBackup: No folder ID, initializing folder structure...');
+        console.log('[BACKUP] Step 7 - initializeFolderStructure');
         const initialized = await provider.initializeFolderStructure();
+        console.log('[BACKUP] Step 8 - initializeFolderStructure success', initialized);
         if (initialized) {
           folderId = provider.getFolderId(backupType === 'daily' ? 'daily' : backupType === 'weekly' ? 'weekly' : 'monthly');
-          console.log('[BACKUP] createBackup: After initialization, folder ID:', folderId);
-        } else {
-          console.error('[BACKUP] createBackup: Failed to initialize folder structure');
         }
       }
 
       if (folderId) {
-        console.log('[BACKUP] createBackup: Uploading JSON to folder:', folderId);
-        // Upload JSON
+        console.log('[BACKUP] Step 9 - upload JSON');
         const jsonResult = await provider.uploadFile(
           backupType === 'daily' ? 'learning-vault-latest.json' : filename,
           json,
           'application/json',
           folderId
         );
+        console.log('[BACKUP] Step 10 - upload JSON success', jsonResult);
 
-        console.log('[BACKUP] createBackup: JSON upload result:', jsonResult);
         if (jsonResult.success) {
           jsonUploaded = true;
           googleDriveFileId = jsonResult.fileId || null;
           storagePath = jsonResult.webViewLink || null;
         }
 
-        console.log('[BACKUP] createBackup: Uploading PDF to folder:', folderId);
-        // Upload PDF
+        console.log('[BACKUP] Step 11 - upload PDF');
         const pdfResult = await provider.uploadFile(
           pdfBackup.filename,
           pdfBackup.content,
           'text/plain',
           folderId
         );
+        console.log('[BACKUP] Step 12 - upload PDF success', pdfResult);
 
-        console.log('[BACKUP] createBackup: PDF upload result:', pdfResult);
         if (pdfResult.success) {
           pdfUploaded = true;
           pdfFileId = pdfResult.fileId || null;
         }
-      } else {
-        console.error('[BACKUP] createBackup: Could not get folder ID, skipping Drive upload');
       }
-    } else {
-      console.log('[BACKUP] createBackup: No provider, skipping Drive upload');
     }
 
-    // Calculate sizes
     const jsonSize = new Blob([json]).size;
     const pdfSize = pdfBackup.sizeBytes;
-
-    // Process entity counts
     const entityCounts = parsedPackage.metadata.entity_counts;
 
-    // Update backup history
+    console.log('[BACKUP] Step 13 - update backup_history');
     await supabase
       .from('backup_history')
       .update({
@@ -149,20 +131,16 @@ export async function createBackup(
         pdf_file_id: pdfFileId
       })
       .eq('id', backupId);
+    console.log('[BACKUP] Step 14 - update success');
 
-    // Verify backup
+    console.log('[BACKUP] Step 15 - verifyBackup');
     await verifyBackup(backupId, json, pdfBackup.content, provider, googleDriveFileId, pdfFileId);
+    console.log('[BACKUP] Step 16 - verifyBackup success');
 
-    // Log activity
     await logBackupActivity(backupType, jsonSize);
-
-    // Apply retention policy
     await applyRetentionPolicy(backupType, provider);
-
-    // Update backup schedule
     await updateBackupSchedule(backupType);
 
-    // Update vault metadata
     await supabase
       .from('vault_metadata')
       .upsert({
@@ -171,6 +149,7 @@ export async function createBackup(
         updated_at: new Date().toISOString()
       });
 
+    console.log('[BACKUP] Step 17 - complete');
     return {
       success: true,
       backupId,
@@ -183,7 +162,7 @@ export async function createBackup(
       durationMs: Math.round(performance.now() - startTime)
     };
   } catch (error) {
-    // Update backup history with error
+    console.error('[BACKUP ERROR]', error);
     if (backupId) {
       await supabase
         .from('backup_history')

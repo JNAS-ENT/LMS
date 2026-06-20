@@ -1344,9 +1344,11 @@ async function computeChecksum(data: string): Promise<string> {
 }
 
 export async function exportVaultPackage(): Promise<{ json: string; filename: string; checksum: string }> {
+  console.log('[VAULT] exportVaultPackage: Starting...');
   const startTime = performance.now();
   const warnings: string[] = [];
 
+  console.log('[VAULT] exportVaultPackage: Fetching all tables...');
   const [
     subjects, modules, topics, subtopics,
     topicNotes, questions, resources, revisions, code, highlights,
@@ -1377,7 +1379,47 @@ export async function exportVaultPackage(): Promise<{ json: string; filename: st
     supabase.from('quick_notes').select('*'),
     supabase.from('streak_tracker').select('*'),
     supabase.from('activity_log').select('*'),
-  ]);
+  ]).catch(err => {
+    console.error('[VAULT ERROR] Failed to fetch tables:', err);
+    throw err;
+  });
+
+  console.log('[VAULT] exportVaultPackage: All tables fetched, checking for errors...');
+
+  // Check for any errors
+  const tableResults = [
+    { name: 'subjects', result: subjects },
+    { name: 'modules', result: modules },
+    { name: 'topics', result: topics },
+    { name: 'subtopics', result: subtopics },
+    { name: 'topic_notes', result: topicNotes },
+    { name: 'topic_questions', result: questions },
+    { name: 'topic_resources', result: resources },
+    { name: 'topic_revisions', result: revisions },
+    { name: 'topic_code', result: code },
+    { name: 'topic_highlights', result: highlights },
+    { name: 'notes', result: notes },
+    { name: 'tags', result: tags },
+    { name: 'topic_relationships', result: relationships },
+    { name: 'storage_providers', result: storageProviders },
+    { name: 'journal_entries', result: journalEntries },
+    { name: 'code_snippets', result: codeSnippets },
+    { name: 'research_papers', result: papers },
+    { name: 'projects', result: projects },
+    { name: 'roadmap_items', result: roadmapItems },
+    { name: 'bookmarks', result: bookmarks },
+    { name: 'quick_notes', result: quickNotes },
+    { name: 'streak_tracker', result: streakDays },
+    { name: 'activity_log', result: activityLog },
+  ];
+
+  for (const table of tableResults) {
+    if (table.result.error) {
+      console.error(`[VAULT ERROR] Table ${table.name} error:`, table.result.error);
+    } else {
+      console.log(`[VAULT] Table ${table.name}: ${table.result.data?.length ?? 0} rows`);
+    }
+  }
 
   const entityCounts = {
     subjects: subjects.data?.length ?? 0,
@@ -1451,6 +1493,8 @@ export async function exportVaultPackage(): Promise<{ json: string; filename: st
   };
 
   const json = JSON.stringify(vaultPackage, null, 2);
+  console.log('[VAULT] exportVaultPackage: JSON stringified, size:', json.length, 'chars');
+
   const checksum = await computeChecksum(json);
   vaultPackage.checksum = checksum;
 
@@ -1460,6 +1504,7 @@ export async function exportVaultPackage(): Promise<{ json: string; filename: st
   const dateStr = new Date().toISOString().split('T')[0];
   const filename = `learning-vault-${dateStr}.json`;
 
+  console.log('[VAULT] exportVaultPackage: Complete, filename:', filename);
   return { json: finalJson, filename, checksum: finalChecksum };
 }
 
