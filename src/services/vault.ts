@@ -29,7 +29,15 @@ import type {
   RelationshipType,
   RelatedTopic,
   GlobalSearchResult,
+  StorageProvider,
+  VaultMetadata,
+  BackupHistory,
+  VaultPackage,
+  ImportResult,
 } from '../types';
+
+// Re-export types for convenience
+export type { StorageProvider, VaultMetadata, BackupHistory, VaultPackage, ImportResult } from '../types';
 
 // ─── Notes ─────────────────────────────────────────────────────
 export async function fetchNotes(category?: string): Promise<Note[]> {
@@ -579,17 +587,19 @@ export async function fetchDeletedItems(): Promise<DeletedItem[]> {
 }
 
 export async function restoreItem(id: string, type: EntityType): Promise<void> {
-  const fns: Record<EntityType, (id: string) => Promise<any>> = {
+  const fns: Partial<Record<EntityType, (id: string) => Promise<any>>> = {
     subject: restoreSubject, module: restoreModule, topic: restoreTopic, subtopic: restoreSubtopic,
   };
-  await fns[type](id);
+  const fn = fns[type];
+  if (fn) await fn(id);
 }
 
 export async function permanentDeleteItem(id: string, type: EntityType): Promise<void> {
-  const fns: Record<EntityType, (id: string) => Promise<void>> = {
+  const fns: Partial<Record<EntityType, (id: string) => Promise<void>>> = {
     subject: permanentDeleteSubject, module: permanentDeleteModule, topic: permanentDeleteTopic, subtopic: permanentDeleteSubtopic,
   };
-  await fns[type](id);
+  const fn = fns[type];
+  if (fn) await fn(id);
 }
 
 // ─── Export / Import ───────────────────────────────────────────────
@@ -699,13 +709,19 @@ export async function importSyllabusJSON(json: string): Promise<{ success: boole
 
 // Topic Notes
 export async function fetchTopicNotes(topicId: string): Promise<TopicNote[]> {
+  console.log('[VAULT DEBUG] fetchTopicNotes called with topicId:', topicId);
   const { data, error } = await supabase.from('topic_notes').select('*').eq('topic_id', topicId).order('display_order');
+  console.log('[VAULT DEBUG] fetchTopicNotes result:', { data, error });
   if (error) throw error;
   return data ?? [];
 }
 
 export async function createTopicNote(topicId: string, title: string, content = '', category = 'General', displayOrder = 0): Promise<TopicNote> {
-  const { data, error } = await supabase.from('topic_notes').insert({ topic_id: topicId, title, content, category, display_order: displayOrder }).select().single();
+  console.log('[VAULT DEBUG] createTopicNote called:', { topicId, title, content, category, displayOrder });
+  const insertPayload = { topic_id: topicId, title, content, category, display_order: displayOrder };
+  console.log('[VAULT DEBUG] Insert payload:', insertPayload);
+  const { data, error } = await supabase.from('topic_notes').insert(insertPayload).select().single();
+  console.log('[VAULT DEBUG] createTopicNote result:', { data, error });
   if (error) throw error;
   return data;
 }
@@ -1247,4 +1263,310 @@ export async function fetchMostReferencedTopics(limit = 5): Promise<{ id: string
     .map(([id, data]) => ({ id, ...data, referenceCount: data.count }))
     .sort((a, b) => b.referenceCount - a.referenceCount)
     .slice(0, limit);
+}
+
+// ─── Storage Providers ─────────────────────────────────────────────
+
+export async function fetchStorageProviders(): Promise<StorageProvider[]> {
+  const { data, error } = await supabase.from('storage_providers').select('*').order('created_at');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createStorageProvider(provider: Partial<StorageProvider>): Promise<StorageProvider> {
+  const { data, error } = await supabase.from('storage_providers').insert(provider).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateStorageProvider(id: string, updates: Partial<StorageProvider>): Promise<StorageProvider> {
+  const { data, error } = await supabase.from('storage_providers').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteStorageProvider(id: string): Promise<void> {
+  const { error } = await supabase.from('storage_providers').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function setDefaultStorageProvider(id: string): Promise<void> {
+  // First, unset all defaults
+  await supabase.from('storage_providers').update({ is_default: false }).neq('id', '00000000-0000-0000-0000-000000000000');
+  // Then set the selected one
+  await supabase.from('storage_providers').update({ is_default: true }).eq('id', id);
+}
+
+// ─── Vault Metadata ────────────────────────────────────────────────
+
+export async function fetchVaultMetadata(): Promise<VaultMetadata[]> {
+  const { data, error } = await supabase.from('vault_metadata').select('*').order('key');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getVaultMetadataValue(key: string): Promise<string | null> {
+  const { data, error } = await supabase.from('vault_metadata').select('value').eq('key', key).maybeSingle();
+  if (error) throw error;
+  return data?.value ? String(data.value) : null;
+}
+
+export async function setVaultMetadataValue(key: string, value: string): Promise<void> {
+  await supabase.from('vault_metadata').upsert({ key, value: JSON.parse(value) }, { onConflict: 'key' });
+}
+
+// ─── Backup History ─────────────────────────────────────────────────
+
+export async function fetchBackupHistory(limit = 20): Promise<BackupHistory[]> {
+  const { data, error } = await supabase.from('backup_history').select('*').order('started_at', { ascending: false }).limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createBackupRecord(backupType: 'manual' | 'daily' | 'weekly' | 'monthly'): Promise<string> {
+  const { data, error } = await supabase.from('backup_history').insert({ backup_type: backupType, status: 'pending' }).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function updateBackupRecord(id: string, updates: Partial<BackupHistory>): Promise<void> {
+  await supabase.from('backup_history').update(updates).eq('id', id);
+}
+
+// ─── Complete Vault Package Export ──────────────────────────────────
+
+async function computeChecksum(data: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const dataBuffer = encoder.encode(data);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function exportVaultPackage(): Promise<{ json: string; filename: string; checksum: string }> {
+  const startTime = performance.now();
+  const warnings: string[] = [];
+
+  const [
+    subjects, modules, topics, subtopics,
+    topicNotes, questions, resources, revisions, code, highlights,
+    notes, tags, relationships, storageProviders,
+    journalEntries, codeSnippets, papers, projects, roadmapItems, bookmarks, quickNotes, streakDays,
+    activityLog
+  ] = await Promise.all([
+    supabase.from('subjects').select('*'),
+    supabase.from('modules').select('*'),
+    supabase.from('topics').select('*'),
+    supabase.from('subtopics').select('*'),
+    supabase.from('topic_notes').select('*'),
+    supabase.from('topic_questions').select('*'),
+    supabase.from('topic_resources').select('*'),
+    supabase.from('topic_revisions').select('*'),
+    supabase.from('topic_code').select('*'),
+    supabase.from('topic_highlights').select('*'),
+    supabase.from('notes').select('*'),
+    supabase.from('tags').select('*'),
+    supabase.from('topic_relationships').select('*'),
+    supabase.from('storage_providers').select('*'),
+    supabase.from('journal_entries').select('*'),
+    supabase.from('code_snippets').select('*'),
+    supabase.from('research_papers').select('*'),
+    supabase.from('projects').select('*'),
+    supabase.from('roadmap_items').select('*'),
+    supabase.from('bookmarks').select('*'),
+    supabase.from('quick_notes').select('*'),
+    supabase.from('streak_days').select('*'),
+    supabase.from('activity_log').select('*'),
+  ]);
+
+  const entityCounts = {
+    subjects: subjects.data?.length ?? 0,
+    modules: modules.data?.length ?? 0,
+    topics: topics.data?.length ?? 0,
+    subtopics: subtopics.data?.length ?? 0,
+    topic_notes: topicNotes.data?.length ?? 0,
+    topic_questions: questions.data?.length ?? 0,
+    topic_resources: resources.data?.length ?? 0,
+    topic_revisions: revisions.data?.length ?? 0,
+    topic_code: code.data?.length ?? 0,
+    topic_highlights: highlights.data?.length ?? 0,
+    notes: notes.data?.length ?? 0,
+    tags: tags.data?.length ?? 0,
+    topic_relationships: relationships.data?.length ?? 0,
+    storage_providers: storageProviders.data?.length ?? 0,
+    journal_entries: journalEntries.data?.length ?? 0,
+    code_snippets: codeSnippets.data?.length ?? 0,
+    research_papers: papers.data?.length ?? 0,
+    projects: projects.data?.length ?? 0,
+    roadmap_items: roadmapItems.data?.length ?? 0,
+    bookmarks: bookmarks.data?.length ?? 0,
+    quick_notes: quickNotes.data?.length ?? 0,
+    streak_days: streakDays.data?.length ?? 0,
+    activity_log: activityLog.data?.length ?? 0,
+  };
+
+  const totalEntities = Object.values(entityCounts).reduce((a, b) => a + b, 0);
+
+  const vaultPackage: VaultPackage = {
+    version: '2.0',
+    schema_version: '1.3',
+    exported_at: new Date().toISOString(),
+    exported_by: 'Learning Vault',
+    app_name: 'Learning Vault',
+    checksum: '',
+    encryption: 'none',
+    compression: 'zip',
+    entities: {
+      subjects: subjects.data ?? [],
+      modules: modules.data ?? [],
+      topics: topics.data ?? [],
+      subtopics: subtopics.data ?? [],
+      topic_notes: topicNotes.data ?? [],
+      topic_questions: questions.data ?? [],
+      topic_resources: resources.data ?? [],
+      topic_revisions: revisions.data ?? [],
+      topic_code: code.data ?? [],
+      topic_highlights: highlights.data ?? [],
+      notes: notes.data ?? [],
+      tags: tags.data ?? [],
+      topic_relationships: relationships.data ?? [],
+      storage_providers: storageProviders.data ?? [],
+      journal_entries: journalEntries.data ?? [],
+      code_snippets: codeSnippets.data ?? [],
+      research_papers: papers.data ?? [],
+      projects: projects.data ?? [],
+      roadmap_items: roadmapItems.data ?? [],
+      bookmarks: bookmarks.data ?? [],
+      quick_notes: quickNotes.data ?? [],
+      streak_days: streakDays.data ?? [],
+      activity_log: activityLog.data ?? [],
+    },
+    metadata: {
+      total_entities: totalEntities,
+      entity_counts: entityCounts,
+      vault_version: '2.0',
+      export_duration_ms: Math.round(performance.now() - startTime),
+      warnings,
+    },
+  };
+
+  const json = JSON.stringify(vaultPackage, null, 2);
+  const checksum = await computeChecksum(json);
+  vaultPackage.checksum = checksum;
+
+  const finalJson = JSON.stringify(vaultPackage, null, 2);
+  const finalChecksum = await computeChecksum(finalJson);
+
+  const dateStr = new Date().toISOString().split('T')[0];
+  const filename = `learning-vault-${dateStr}.json`;
+
+  return { json: finalJson, filename, checksum: finalChecksum };
+}
+
+// ─── Complete Vault Package Import ──────────────────────────────────
+
+export async function importVaultPackage(json: string): Promise<ImportResult> {
+  const startTime = performance.now();
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const importedCounts: Record<string, number> = {};
+
+  let data: VaultPackage;
+  try {
+    data = JSON.parse(json);
+  } catch {
+    return { success: false, message: 'Invalid JSON file.', imported_counts: {}, warnings: [], errors: ['Failed to parse JSON'], duration_ms: Math.round(performance.now() - startTime) };
+  }
+
+  // Validate structure
+  if (!data.version || !data.exported_at) {
+    return { success: false, message: 'Invalid vault package. Missing version or export date.', imported_counts: {}, warnings: [], errors: ['Missing required fields'], duration_ms: Math.round(performance.now() - startTime) };
+  }
+
+  if (data.app_name !== 'Learning Vault') {
+    warnings.push('This backup was exported from a different application or version.');
+  }
+
+  const tables = [
+    { name: 'topic_relationships', data: data.entities.topic_relationships },
+    { name: 'topic_highlights', data: data.entities.topic_highlights },
+    { name: 'topic_code', data: data.entities.topic_code },
+    { name: 'topic_revisions', data: data.entities.topic_revisions },
+    { name: 'topic_resources', data: data.entities.topic_resources },
+    { name: 'topic_questions', data: data.entities.topic_questions },
+    { name: 'topic_notes', data: data.entities.topic_notes },
+    { name: 'subtopics', data: data.entities.subtopics },
+    { name: 'topics', data: data.entities.topics },
+    { name: 'modules', data: data.entities.modules },
+    { name: 'subjects', data: data.entities.subjects },
+    { name: 'tags', data: data.entities.tags },
+    { name: 'notes', data: data.entities.notes },
+    { name: 'storage_providers', data: data.entities.storage_providers },
+    { name: 'journal_entries', data: data.entities.journal_entries },
+    { name: 'code_snippets', data: data.entities.code_snippets },
+    { name: 'research_papers', data: data.entities.research_papers },
+    { name: 'projects', data: data.entities.projects },
+    { name: 'roadmap_items', data: data.entities.roadmap_items },
+    { name: 'bookmarks', data: data.entities.bookmarks },
+    { name: 'quick_notes', data: data.entities.quick_notes },
+    { name: 'streak_days', data: data.entities.streak_days },
+    { name: 'activity_log', data: data.entities.activity_log },
+  ];
+
+  // Clear existing data
+  for (const t of tables) {
+    await supabase.from(t.name).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  }
+
+  // Insert new data
+  const insertSafe = async (table: string, items: any[]) => {
+    if (!items?.length) return 0;
+    try {
+      const { error } = await supabase.from(table).insert(items);
+      if (error) {
+        errors.push(`Failed to insert into ${table}: ${error.message}`);
+        return 0;
+      }
+      return items.length;
+    } catch (e) {
+      errors.push(`Exception inserting into ${table}`);
+      return 0;
+    }
+  };
+
+  // Insert in dependency order
+  importedCounts.storage_providers = await insertSafe('storage_providers', data.entities.storage_providers);
+  importedCounts.subjects = await insertSafe('subjects', data.entities.subjects);
+  importedCounts.modules = await insertSafe('modules', data.entities.modules);
+  importedCounts.topics = await insertSafe('topics', data.entities.topics);
+  importedCounts.subtopics = await insertSafe('subtopics', data.entities.subtopics);
+  importedCounts.topic_notes = await insertSafe('topic_notes', data.entities.topic_notes);
+  importedCounts.topic_questions = await insertSafe('topic_questions', data.entities.topic_questions);
+  importedCounts.topic_resources = await insertSafe('topic_resources', data.entities.topic_resources);
+  importedCounts.topic_revisions = await insertSafe('topic_revisions', data.entities.topic_revisions);
+  importedCounts.topic_code = await insertSafe('topic_code', data.entities.topic_code);
+  importedCounts.topic_highlights = await insertSafe('topic_highlights', data.entities.topic_highlights);
+  importedCounts.notes = await insertSafe('notes', data.entities.notes);
+  importedCounts.tags = await insertSafe('tags', data.entities.tags);
+  importedCounts.topic_relationships = await insertSafe('topic_relationships', data.entities.topic_relationships);
+  importedCounts.journal_entries = await insertSafe('journal_entries', data.entities.journal_entries);
+  importedCounts.code_snippets = await insertSafe('code_snippets', data.entities.code_snippets);
+  importedCounts.research_papers = await insertSafe('research_papers', data.entities.research_papers);
+  importedCounts.projects = await insertSafe('projects', data.entities.projects);
+  importedCounts.roadmap_items = await insertSafe('roadmap_items', data.entities.roadmap_items);
+  importedCounts.bookmarks = await insertSafe('bookmarks', data.entities.bookmarks);
+  importedCounts.quick_notes = await insertSafe('quick_notes', data.entities.quick_notes);
+  importedCounts.streak_days = await insertSafe('streak_days', data.entities.streak_days);
+  importedCounts.activity_log = await insertSafe('activity_log', data.entities.activity_log);
+
+  const totalImported = Object.values(importedCounts).reduce((a, b) => a + b, 0);
+
+  return {
+    success: errors.length === 0,
+    message: `Imported ${totalImported} entities from vault package v${data.version}`,
+    imported_counts: importedCounts,
+    warnings,
+    errors,
+    duration_ms: Math.round(performance.now() - startTime),
+  };
 }

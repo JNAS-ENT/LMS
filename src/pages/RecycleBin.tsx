@@ -16,6 +16,12 @@ const TYPE_ICONS: Record<EntityType, React.ReactNode> = {
   module: <FolderOpen size={16} />,
   topic: <Layers size={16} />,
   subtopic: <FileText size={16} />,
+  note: <FileText size={16} />,
+  question: <AlertTriangle size={16} />,
+  resource: <Archive size={16} />,
+  highlight: <Check size={16} />,
+  revision: <RotateCcw size={16} />,
+  code: <FileText size={16} />,
 };
 
 const TYPE_COLORS: Record<EntityType, string> = {
@@ -23,6 +29,12 @@ const TYPE_COLORS: Record<EntityType, string> = {
   module: 'bg-blue-100 text-blue-700',
   topic: 'bg-emerald-100 text-emerald-700',
   subtopic: 'bg-amber-100 text-amber-700',
+  note: 'bg-purple-100 text-purple-700',
+  question: 'bg-orange-100 text-orange-700',
+  resource: 'bg-cyan-100 text-cyan-700',
+  highlight: 'bg-pink-100 text-pink-700',
+  revision: 'bg-indigo-100 text-indigo-700',
+  code: 'bg-slate-100 text-slate-700',
 };
 
 export default function RecycleBin() {

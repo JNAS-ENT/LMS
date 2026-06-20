@@ -6,9 +6,11 @@ interface ConfirmDialogProps {
   onConfirm: () => void;
   title: string;
   message: string;
+  confirmLabel?: string;
+  variant?: 'danger' | 'warning';
 }
 
-export default function ConfirmDialog({ open, onClose, onConfirm, title, message }: ConfirmDialogProps) {
+export default function ConfirmDialog({ open, onClose, onConfirm, title, message, confirmLabel = 'Delete', variant = 'danger' }: ConfirmDialogProps) {
   return (
     <AnimatePresence>
       {open && (
@@ -32,8 +34,10 @@ export default function ConfirmDialog({ open, onClose, onConfirm, title, message
               <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
                 Cancel
               </button>
-              <button onClick={onConfirm} className="px-4 py-2 text-sm text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors">
-                Delete
+              <button onClick={onConfirm} className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${
+                variant === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
+              }`}>
+                {confirmLabel}
               </button>
             </div>
           </motion.div>

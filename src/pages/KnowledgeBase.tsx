@@ -205,18 +205,37 @@ function NotesTab({ node, onUpdate }: { node: SyllabusNode; onUpdate: () => void
   useEffect(() => { loadNotes(); }, [node.data.id]);
 
   const loadNotes = async () => {
+    console.log('[NOTES DEBUG] loadNotes called for nodeId:', node.data.id);
     setLoading(true);
-    try { setNotes(await fetchTopicNotes(node.data.id)); } catch { setNotes([]); }
+    try {
+      const fetched = await fetchTopicNotes(node.data.id);
+      console.log('[NOTES DEBUG] fetchTopicNotes returned:', fetched);
+      setNotes(fetched);
+    } catch (err) {
+      console.error('[NOTES DEBUG] fetchTopicNotes error:', err);
+      setNotes([]);
+    }
     setLoading(false);
   };
 
   const handleAdd = async () => {
-    if (!newTitle.trim()) return;
-    await createTopicNote(node.data.id, newTitle, newContent, newCategory, notes.length);
-    setNewTitle(''); setNewContent(''); setNewCategory('General'); setAdding(false);
-    loadNotes();
-    if (node.level === 'topic') detectAndSetStatus(node.data.id);
-    onUpdate();
+    console.log('[NOTES DEBUG] handleAdd called', { newTitle, newContent, newCategory, nodeId: node.data.id, nodeLevel: node.level });
+    if (!newTitle.trim()) {
+      console.log('[NOTES DEBUG] Title empty, returning early');
+      return;
+    }
+    try {
+      console.log('[NOTES DEBUG] Calling createTopicNote...');
+      const result = await createTopicNote(node.data.id, newTitle, newContent, newCategory, notes.length);
+      console.log('[NOTES DEBUG] createTopicNote result:', result);
+      setNewTitle(''); setNewContent(''); setNewCategory('General'); setAdding(false);
+      await loadNotes();
+      console.log('[NOTES DEBUG] loadNotes completed');
+      if (node.level === 'topic') detectAndSetStatus(node.data.id);
+      onUpdate();
+    } catch (err) {
+      console.error('[NOTES DEBUG] Error in handleAdd:', err);
+    }
   };
 
   const handleAutoSave = (id: string, field: 'title' | 'content' | 'category', value: string) => {

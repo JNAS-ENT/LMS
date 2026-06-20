@@ -95,19 +95,19 @@ export default function QuickCapture() {
       if (captureType === 'note') {
         if (!noteTitle.trim()) return;
         await createTopicNote(selectedTopic, noteTitle, noteContent, 'Quick Capture');
-        await logActivity('add_note', selectedTopic, noteTitle, { topic_id: selectedTopic, topic_name: topicName });
+        await logActivity('topic', selectedTopic, noteTitle, 'add_note', { topic_id: selectedTopic, topic_name: topicName });
       } else if (captureType === 'question') {
         if (!questionText.trim()) return;
         await createTopicQuestion(selectedTopic, questionText, '', 'Medium', 'Open');
-        await logActivity('add_question', selectedTopic, questionText, { topic_id: selectedTopic, topic_name: topicName });
+        await logActivity('topic', selectedTopic, questionText, 'add_question', { topic_id: selectedTopic, topic_name: topicName });
       } else if (captureType === 'resource') {
         if (!resourceTitle.trim() || !resourceUrl.trim()) return;
         await createTopicResource(selectedTopic, resourceTitle, resourceUrl, resourceType, '');
-        await logActivity('add_resource', selectedTopic, resourceTitle, { topic_id: selectedTopic, topic_name: topicName, resource_type: resourceType });
+        await logActivity('topic', selectedTopic, resourceTitle, 'add_resource', { topic_id: selectedTopic, topic_name: topicName, resource_type: resourceType });
       } else if (captureType === 'highlight') {
         if (!highlightContent.trim()) return;
         await createTopicHighlight(selectedTopic, highlightContent, highlightType);
-        await logActivity('add_highlight', selectedTopic, highlightContent.slice(0, 50), { topic_id: selectedTopic, topic_name: topicName, highlight_type: highlightType });
+        await logActivity('topic', selectedTopic, highlightContent.slice(0, 50), 'add_highlight', { topic_id: selectedTopic, topic_name: topicName, highlight_type: highlightType });
       }
 
       handleClose();

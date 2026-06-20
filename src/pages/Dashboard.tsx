@@ -30,7 +30,7 @@ const ACTION_COLORS: Record<string, string> = {
 
 const ENTITY_ICONS: Record<string, React.ReactNode> = {
   subject: <BookOpen size={12} />, module: <Layers size={12} />, topic: <TrendingUp size={12} />, subtopic: <FileText size={12} />,
-  note: <StickyNote size={12} />, question: <HelpCircle size={12} />, resource: <Link size={12} />, highlight: <Check size={12} />, revision: <RotateCcw size={12} />,
+  note: <StickyNote size={12} />, question: <HelpCircle size={12} />, resource: <Link size={12} />, highlight: <Check size={12} />, revision: <RotateCcw size={12} />, code: <FileText size={12} />,
 };
 
 export default function Dashboard() {
@@ -384,7 +384,7 @@ export default function Dashboard() {
                       <span className="text-gray-400 shrink-0">{ENTITY_ICONS[a.entity_type] || <Activity size={12} />}</span>
                       <span className={`text-xs font-medium ${ACTION_COLORS[a.action] || 'text-gray-600'}`}>{ACTION_LABELS[a.action] || a.action}</span>
                       <span className="text-sm text-gray-900 truncate">{a.entity_name}</span>
-                      {a.details?.topic_name && <span className="text-xs text-gray-400">in {a.details.topic_name as string}</span>}
+                      {typeof a.details?.topic_name === 'string' && <span className="text-xs text-gray-400">in {a.details.topic_name}</span>}
                     </div>
                     <span className="text-xs text-gray-400 shrink-0 ml-3">{timeAgo(a.created_at)}</span>
                   </div>

@@ -16,6 +16,7 @@ import {
   Brain,
   Archive,
   Sparkles,
+  Cloud,
 } from 'lucide-react';
 
 const navItems = [
@@ -30,6 +31,7 @@ const navItems = [
   { to: '/bookmarks', icon: Bookmark, label: 'Bookmarks' },
   { to: '/quick-notes', icon: StickyNote, label: 'Quick Notes' },
   { to: '/search', icon: Search, label: 'Search' },
+  { to: '/backup-center', icon: Cloud, label: 'Backup Center' },
   { to: '/recycle-bin', icon: Archive, label: 'Recycle Bin' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
