@@ -1,19 +1,40 @@
 import { AnimatePresence, motion } from 'framer-motion';
 
 interface ConfirmDialogProps {
-  open: boolean;
+  open?: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   onConfirm: () => void;
   title: string;
   message: string;
   confirmLabel?: string;
-  variant?: 'danger' | 'warning';
+  confirmText?: string;
+  variant?: 'danger' | 'warning' | 'primary';
+  confirmVariant?: 'danger' | 'warning' | 'primary';
 }
 
-export default function ConfirmDialog({ open, onClose, onConfirm, title, message, confirmLabel = 'Delete', variant = 'danger' }: ConfirmDialogProps) {
+export default function ConfirmDialog({
+  open,
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel,
+  confirmText,
+  variant,
+  confirmVariant
+}: ConfirmDialogProps) {
+  // Support both prop naming conventions
+  const showDialog = open ?? isOpen ?? false;
+  const buttonText = confirmLabel || confirmText || 'Confirm';
+  const buttonVariant = variant || confirmVariant || 'primary';
+
+  console.log('[UI] ConfirmDialog rendered, showDialog:', showDialog);
+
   return (
     <AnimatePresence>
-      {open && (
+      {showDialog && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center px-4">
           <motion.div
             initial={{ opacity: 0 }}
@@ -34,10 +55,18 @@ export default function ConfirmDialog({ open, onClose, onConfirm, title, message
               <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
                 Cancel
               </button>
-              <button onClick={onConfirm} className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${
-                variant === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
-              }`}>
-                {confirmLabel}
+              <button
+                onClick={() => {
+                  console.log('[UI] Confirm button clicked');
+                  onConfirm();
+                }}
+                className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${
+                  buttonVariant === 'danger' ? 'bg-red-600 hover:bg-red-700' :
+                  buttonVariant === 'warning' ? 'bg-amber-600 hover:bg-amber-700' :
+                  'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {buttonText}
               </button>
             </div>
           </motion.div>

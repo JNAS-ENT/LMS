@@ -187,10 +187,12 @@ export default function BackupCenter() {
   };
 
   const runBackup = async (backupType: BackupType) => {
+    console.log('[UI] runBackup entered, type:', backupType);
     setActionLoading(`backup-${backupType}`);
     setShowBackupConfirm(null);
 
     try {
+      console.log('[UI] runBackup: calling createBackup...');
       const result: BackupResult = await createBackup(backupType, provider || undefined);
 
       if (result.success) {
@@ -560,7 +562,11 @@ export default function BackupCenter() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Run Backup Now */}
           <button
-            onClick={() => setShowBackupConfirm('manual')}
+            onClick={() => {
+              console.log('[UI] Run Backup button clicked');
+              console.log('[UI] showBackupConfirm state:', showBackupConfirm);
+              setShowBackupConfirm('manual');
+            }}
             disabled={actionLoading !== null}
             className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
           >
