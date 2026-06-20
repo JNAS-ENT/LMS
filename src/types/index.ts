@@ -393,7 +393,7 @@ export interface VaultPackage {
     roadmap_items: RoadmapItem[];
     bookmarks: Bookmark[];
     quick_notes: QuickNote[];
-    streak_days: StreakDay[];
+    streak_tracker: StreakDay[];
     activity_log: ActivityLogEntry[];
   };
   metadata: {

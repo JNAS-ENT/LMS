@@ -1375,7 +1375,7 @@ export async function exportVaultPackage(): Promise<{ json: string; filename: st
     supabase.from('roadmap_items').select('*'),
     supabase.from('bookmarks').select('*'),
     supabase.from('quick_notes').select('*'),
-    supabase.from('streak_days').select('*'),
+    supabase.from('streak_tracker').select('*'),
     supabase.from('activity_log').select('*'),
   ]);
 
@@ -1401,7 +1401,7 @@ export async function exportVaultPackage(): Promise<{ json: string; filename: st
     roadmap_items: roadmapItems.data?.length ?? 0,
     bookmarks: bookmarks.data?.length ?? 0,
     quick_notes: quickNotes.data?.length ?? 0,
-    streak_days: streakDays.data?.length ?? 0,
+    streak_tracker: streakDays.data?.length ?? 0,
     activity_log: activityLog.data?.length ?? 0,
   };
 
@@ -1438,7 +1438,7 @@ export async function exportVaultPackage(): Promise<{ json: string; filename: st
       roadmap_items: roadmapItems.data ?? [],
       bookmarks: bookmarks.data ?? [],
       quick_notes: quickNotes.data ?? [],
-      streak_days: streakDays.data ?? [],
+      streak_tracker: streakDays.data ?? [],
       activity_log: activityLog.data ?? [],
     },
     metadata: {
@@ -1509,7 +1509,7 @@ export async function importVaultPackage(json: string): Promise<ImportResult> {
     { name: 'roadmap_items', data: data.entities.roadmap_items },
     { name: 'bookmarks', data: data.entities.bookmarks },
     { name: 'quick_notes', data: data.entities.quick_notes },
-    { name: 'streak_days', data: data.entities.streak_days },
+    { name: 'streak_tracker', data: data.entities.streak_tracker },
     { name: 'activity_log', data: data.entities.activity_log },
   ];
 
@@ -1556,7 +1556,7 @@ export async function importVaultPackage(json: string): Promise<ImportResult> {
   importedCounts.roadmap_items = await insertSafe('roadmap_items', data.entities.roadmap_items);
   importedCounts.bookmarks = await insertSafe('bookmarks', data.entities.bookmarks);
   importedCounts.quick_notes = await insertSafe('quick_notes', data.entities.quick_notes);
-  importedCounts.streak_days = await insertSafe('streak_days', data.entities.streak_days);
+  importedCounts.streak_tracker = await insertSafe('streak_tracker', data.entities.streak_tracker);
   importedCounts.activity_log = await insertSafe('activity_log', data.entities.activity_log);
 
   const totalImported = Object.values(importedCounts).reduce((a, b) => a + b, 0);

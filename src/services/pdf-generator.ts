@@ -113,7 +113,7 @@ async function extractPDFSummary(
 
   // Weekly learning stats
   const weeklyStats = {
-    totalMinutes: entities.streak_days
+    totalMinutes: entities.streak_tracker
       .filter(d => new Date(d.date) >= sevenDaysAgo)
       .reduce((sum, d) => sum + d.minutes_learned, 0),
     topicsCovered: recentlyUpdatedTopics.length,
