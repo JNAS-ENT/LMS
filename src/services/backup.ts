@@ -25,11 +25,13 @@ export async function createBackup(
   backupType: BackupType,
   provider?: GoogleDriveProvider
 ): Promise<BackupResult> {
+  console.log('[BACKUP] createBackup: Starting', backupType, 'backup...');
   const startTime = performance.now();
   let backupId: string | null = null;
 
   try {
     // Create backup history record
+    console.log('[BACKUP] createBackup: Creating backup history record...');
     const { data: history, error: historyError } = await supabase
       .from('backup_history')
       .insert({
@@ -43,17 +45,23 @@ export async function createBackup(
       .single();
 
     if (historyError) {
+      console.error('[BACKUP] createBackup: Failed to create backup record:', historyError);
       throw new Error(`Failed to create backup record: ${historyError.message}`);
     }
 
     backupId = history.id;
+    console.log('[BACKUP] createBackup: Backup record created with ID:', backupId);
 
     // Generate JSON backup
+    console.log('[BACKUP] createBackup: Generating JSON backup...');
     const { json, filename, checksum } = await exportVaultPackage();
     const parsedPackage: VaultPackage = JSON.parse(json);
+    console.log('[BACKUP] createBackup: JSON generated, size:', new Blob([json]).size, 'bytes');
 
     // Generate PDF backup
+    console.log('[BACKUP] createBackup: Generating PDF backup...');
     const pdfBackup = await generatePDFBackup(parsedPackage, backupType);
+    console.log('[BACKUP] createBackup: PDF generated, size:', pdfBackup.sizeBytes, 'bytes');
 
     let jsonUploaded = false;
     let pdfUploaded = false;
@@ -63,9 +71,25 @@ export async function createBackup(
 
     // Upload to Google Drive if provider is connected
     if (provider) {
-      const folderId = provider.getFolderId(backupType === 'daily' ? 'daily' : backupType === 'weekly' ? 'weekly' : 'monthly');
+      console.log('[BACKUP] createBackup: Provider connected, checking folder structure...');
+
+      // Ensure folder structure exists
+      let folderId = provider.getFolderId(backupType === 'daily' ? 'daily' : backupType === 'weekly' ? 'weekly' : 'monthly');
+      console.log('[BACKUP] createBackup: Folder ID for', backupType, ':', folderId);
+
+      if (!folderId) {
+        console.log('[BACKUP] createBackup: No folder ID, initializing folder structure...');
+        const initialized = await provider.initializeFolderStructure();
+        if (initialized) {
+          folderId = provider.getFolderId(backupType === 'daily' ? 'daily' : backupType === 'weekly' ? 'weekly' : 'monthly');
+          console.log('[BACKUP] createBackup: After initialization, folder ID:', folderId);
+        } else {
+          console.error('[BACKUP] createBackup: Failed to initialize folder structure');
+        }
+      }
 
       if (folderId) {
+        console.log('[BACKUP] createBackup: Uploading JSON to folder:', folderId);
         // Upload JSON
         const jsonResult = await provider.uploadFile(
           backupType === 'daily' ? 'learning-vault-latest.json' : filename,
@@ -74,12 +98,14 @@ export async function createBackup(
           folderId
         );
 
+        console.log('[BACKUP] createBackup: JSON upload result:', jsonResult);
         if (jsonResult.success) {
           jsonUploaded = true;
           googleDriveFileId = jsonResult.fileId || null;
           storagePath = jsonResult.webViewLink || null;
         }
 
+        console.log('[BACKUP] createBackup: Uploading PDF to folder:', folderId);
         // Upload PDF
         const pdfResult = await provider.uploadFile(
           pdfBackup.filename,
@@ -88,11 +114,16 @@ export async function createBackup(
           folderId
         );
 
+        console.log('[BACKUP] createBackup: PDF upload result:', pdfResult);
         if (pdfResult.success) {
           pdfUploaded = true;
           pdfFileId = pdfResult.fileId || null;
         }
+      } else {
+        console.error('[BACKUP] createBackup: Could not get folder ID, skipping Drive upload');
       }
+    } else {
+      console.log('[BACKUP] createBackup: No provider, skipping Drive upload');
     }
 
     // Calculate sizes

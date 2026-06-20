@@ -317,10 +317,46 @@ export default function BackupCenter() {
   };
 
   const openBackupFolder = () => {
-    setNotification({
-      type: 'info',
-      message: 'Open Google Drive and navigate to "Learning Vault Backups" folder.'
-    });
+    console.log('[BACKUP CENTER] openBackupFolder: Opening Google Drive folder...');
+    if (!provider) {
+      console.error('[BACKUP CENTER] openBackupFolder: No provider connected');
+      setNotification({
+        type: 'error',
+        message: 'Google Drive not connected'
+      });
+      return;
+    }
+
+    const folderUrl = provider.getFolderUrl('root');
+    console.log('[BACKUP CENTER] openBackupFolder: Folder URL:', folderUrl);
+
+    if (folderUrl) {
+      window.open(folderUrl, '_blank');
+      setNotification({
+        type: 'success',
+        message: 'Opening Google Drive folder in new tab...'
+      });
+    } else {
+      // Folder doesn't exist, initialize it
+      console.log('[BACKUP CENTER] openBackupFolder: No folder URL, initializing...');
+      provider.initializeFolderStructure().then((success) => {
+        if (success) {
+          const newUrl = provider.getFolderUrl('root');
+          if (newUrl) {
+            window.open(newUrl, '_blank');
+            setNotification({
+              type: 'success',
+              message: 'Created backup folder and opened in new tab'
+            });
+          }
+        } else {
+          setNotification({
+            type: 'error',
+            message: 'Failed to create backup folder'
+          });
+        }
+      });
+    }
   };
 
   const formatDate = (dateStr: string | null) => {
