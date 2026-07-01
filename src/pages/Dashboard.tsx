@@ -4,6 +4,7 @@ import {
   BookOpen, FileText, Flame, Plus, Clock, TrendingUp, Layers,
   CheckCircle2, Loader2, Circle, RotateCcw, Target, Trash2, Activity,
   StickyNote, HelpCircle, Link, Check, BarChart3, Code2, Tag, GitBranch,
+  Sparkles, Award,
 } from 'lucide-react';
 import {
   fetchSyllabusCounts, fetchLearningStats, fetchSyllabusTree,
@@ -35,7 +36,7 @@ const ENTITY_ICONS: Record<string, React.ReactNode> = {
 
 export default function Dashboard() {
   const [counts, setCounts] = useState({ subjects: 0, modules: 0, topics: 0, subtopics: 0 });
-  const [learning, setLearning] = useState({ topicsCompleted: 0, topicsLearning: 0, topicsPending: 0, overallProgress: 0, revisionsDue: 0 });
+  const [learning, setLearning] = useState({ topicsCompleted: 0, topicsLearning: 0, topicsPending: 0, overallProgress: 0, revisionsDue: 0, notesWritten: 0, questionsSolved: 0, attachmentsAdded: 0, aiChats: 0, weeklyProgress: 0, monthlyProgress: 0 });
   const [streak, setStreak] = useState(0);
   const [recentJournal, setRecentJournal] = useState<JournalEntry[]>([]);
   const [quickNote, setQuickNote] = useState('');
@@ -55,7 +56,7 @@ export default function Dashboard() {
   async function loadData() {
     const [syllabusCounts, learningStats, streakData, journal, tree, deleted, activity, stats, content, tags, recentTopics, refTopics] = await Promise.all([
       fetchSyllabusCounts().catch(() => ({ subjects: 0, modules: 0, topics: 0, subtopics: 0 })),
-      fetchLearningStats().catch(() => ({ topicsCompleted: 0, topicsLearning: 0, topicsPending: 0, overallProgress: 0, revisionsDue: 0 })),
+      fetchLearningStats().catch(() => ({ topicsCompleted: 0, topicsLearning: 0, topicsPending: 0, overallProgress: 0, revisionsDue: 0, notesWritten: 0, questionsSolved: 0, attachmentsAdded: 0, aiChats: 0, weeklyProgress: 0, monthlyProgress: 0 })),
       fetchStreakData(365).catch(() => []),
       fetchJournalEntries(5).catch(() => []),
       fetchSyllabusTree().catch(() => []),
@@ -112,6 +113,12 @@ export default function Dashboard() {
     { label: 'Learning', value: learning.topicsLearning, icon: Loader2, color: 'bg-blue-50 text-blue-600' },
     { label: 'Pending', value: learning.topicsPending, icon: Circle, color: 'bg-gray-100 text-gray-600' },
     { label: 'Revisions Due', value: learning.revisionsDue, icon: RotateCcw, color: 'bg-amber-50 text-amber-600' },
+    { label: 'Notes Written', value: learning.notesWritten, icon: StickyNote, color: 'bg-cyan-50 text-cyan-600' },
+    { label: 'Questions Solved', value: learning.questionsSolved, icon: HelpCircle, color: 'bg-violet-50 text-violet-600' },
+    { label: 'Attachments', value: learning.attachmentsAdded, icon: FileText, color: 'bg-orange-50 text-orange-600' },
+    { label: 'AI Chats', value: learning.aiChats, icon: Sparkles, color: 'bg-pink-50 text-pink-600' },
+    { label: 'Weekly Progress', value: learning.weeklyProgress, icon: TrendingUp, color: 'bg-green-50 text-green-600' },
+    { label: 'Monthly Progress', value: learning.monthlyProgress, icon: Award, color: 'bg-teal-50 text-teal-600' },
   ];
 
   if (loading) {

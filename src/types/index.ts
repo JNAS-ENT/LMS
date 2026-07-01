@@ -73,7 +73,7 @@ export type SyllabusNode =
 
 // ─── Activity Log ──────────────────────────────────────────────
 
-export type ActivityAction = 'create' | 'update' | 'delete' | 'restore' | 'rename' | 'move' | 'solve' | 'revise' | 'add_note' | 'add_question' | 'add_resource' | 'add_highlight';
+export type ActivityAction = 'create' | 'update' | 'delete' | 'restore' | 'rename' | 'move' | 'solve' | 'revise' | 'add_note' | 'add_question' | 'add_resource' | 'add_highlight' | 'add_attachment';
 export type EntityType = 'subject' | 'module' | 'topic' | 'subtopic' | 'note' | 'question' | 'resource' | 'highlight' | 'revision' | 'code';
 
 export interface ActivityLogEntry {
@@ -93,26 +93,54 @@ export type QuestionStatus = 'Open' | 'Researching' | 'Solved';
 export type ResourceType = 'Google Drive' | 'PDF' | 'YouTube' | 'GitHub' | 'Website' | 'Dataset' | 'Research Paper';
 export type HighlightType = 'Key Concept' | 'Formula' | 'Interview Question' | 'Important Note';
 
+export type NoteColorLabel = 'none' | 'yellow' | 'green' | 'blue' | 'pink' | 'orange' | 'purple';
+
 export interface TopicNote {
   id: string;
-  topic_id: string;
+  topic_id: string | null;
+  subtopic_id: string | null;
   title: string;
   content: string;
   category: string;
   tags: string[];
   display_order: number;
   content_hash: string | null;
+  author: string;
+  color_label: NoteColorLabel;
+  pinned: boolean;
+  favorite: boolean;
+  archived: boolean;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
+export interface TopicNoteVersion {
+  id: string;
+  note_id: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  version_number: number;
+  edited_by: string;
+  created_at: string;
+}
+
+export type QuestionType = 'Theory' | 'MCQ' | 'Coding' | 'Interview' | 'Practice';
+
 export interface TopicQuestion {
   id: string;
-  topic_id: string;
+  topic_id: string | null;
+  subtopic_id: string | null;
   question: string;
   answer: string;
   difficulty: Difficulty;
   status: QuestionStatus;
+  question_type: QuestionType;
+  explanation: string;
+  options: string[] | null;
+  correct_option: number | null;
   tags: string[];
   display_order: number;
   created_at: string;
@@ -121,7 +149,8 @@ export interface TopicQuestion {
 
 export interface TopicResource {
   id: string;
-  topic_id: string;
+  topic_id: string | null;
+  subtopic_id: string | null;
   title: string;
   url: string;
   resource_type: ResourceType;
@@ -137,10 +166,13 @@ export interface TopicResource {
 
 export interface TopicRevision {
   id: string;
-  topic_id: string;
+  topic_id: string | null;
+  subtopic_id: string | null;
   revision_date: string;
   confidence_score: number;
   revision_notes: string;
+  next_revision_date: string | null;
+  interval_days: number;
   created_at: string;
   updated_at: string;
 }
@@ -153,6 +185,50 @@ export interface TopicCode {
   language: string;
   display_order: number;
   content_hash: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AttachmentType = 'PDF' | 'PPT' | 'DOCX' | 'Excel' | 'Image' | 'Audio' | 'Video' | 'ZIP';
+
+export interface TopicAttachment {
+  id: string;
+  topic_id: string | null;
+  subtopic_id: string | null;
+  note_id: string | null;
+  filename: string;
+  file_type: AttachmentType;
+  file_url: string;
+  file_size_bytes: number | null;
+  mime_type: string | null;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export type AIAction = 'summarize' | 'explain' | 'interview' | 'mcqs' | 'flashcards' | 'revision_notes' | 'missing_topics' | 'learning_path' | 'chat';
+
+export interface TopicAIHistory {
+  id: string;
+  topic_id: string | null;
+  subtopic_id: string | null;
+  action: AIAction;
+  prompt: string;
+  response: string;
+  created_at: string;
+}
+
+export type TopicBookmarkCategory = 'Link' | 'YouTube' | 'GitHub' | 'Documentation' | 'Research Paper' | 'Google Drive';
+
+export interface TopicBookmark {
+  id: string;
+  topic_id: string | null;
+  subtopic_id: string | null;
+  title: string;
+  url: string;
+  category: TopicBookmarkCategory;
+  description: string;
   created_at: string;
   updated_at: string;
 }
@@ -203,7 +279,7 @@ export interface RelatedTopic {
 }
 
 export interface GlobalSearchResult {
-  type: 'subject' | 'module' | 'topic' | 'subtopic' | 'note' | 'question' | 'resource' | 'highlight';
+  type: 'subject' | 'module' | 'topic' | 'subtopic' | 'note' | 'question' | 'resource' | 'highlight' | 'attachment' | 'bookmark' | 'ai_history' | 'paper';
   id: string;
   title: string;
   subtitle?: string;

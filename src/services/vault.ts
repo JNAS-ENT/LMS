@@ -15,11 +15,15 @@ import type {
   Subtopic,
   SyllabusNode,
   TopicNote,
+  TopicNoteVersion,
   TopicQuestion,
   TopicResource,
   TopicRevision,
   TopicCode,
   TopicHighlight,
+  TopicAttachment,
+  TopicAIHistory,
+  TopicBookmark,
   ActivityLogEntry,
   ActivityAction,
   EntityType,
@@ -34,6 +38,10 @@ import type {
   BackupHistory,
   VaultPackage,
   ImportResult,
+  QuestionType,
+  AIAction,
+  AttachmentType,
+  TopicBookmarkCategory,
 } from '../types';
 
 // Re-export types for convenience
@@ -707,29 +715,78 @@ export async function importSyllabusJSON(json: string): Promise<{ success: boole
 
 // ─── Topic Workspace ────────────────────────────────────────────
 
-// Topic Notes
-export async function fetchTopicNotes(topicId: string): Promise<TopicNote[]> {
-  console.log('[VAULT DEBUG] fetchTopicNotes called with topicId:', topicId);
-  const { data, error } = await supabase.from('topic_notes').select('*').eq('topic_id', topicId).order('display_order');
-  console.log('[VAULT DEBUG] fetchTopicNotes result:', { data, error });
+// Topic Notes — supports unlimited notes, timeline ordering, pin/favorite/archive/soft-delete
+// Now supports both topics and subtopics
+
+export async function fetchTopicNotes(topicId: string, isSubtopic = false): Promise<TopicNote[]> {
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const { data, error } = await supabase
+    .from('topic_notes')
+    .select('*')
+    .eq(column, topicId)
+    .is('deleted_at', null)
+    .order('pinned', { ascending: false })
+    .order('created_at', { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
-export async function createTopicNote(topicId: string, title: string, content = '', category = 'General', displayOrder = 0): Promise<TopicNote> {
-  console.log('[VAULT DEBUG] createTopicNote called:', { topicId, title, content, category, displayOrder });
-  const insertPayload = { topic_id: topicId, title, content, category, display_order: displayOrder };
-  console.log('[VAULT DEBUG] Insert payload:', insertPayload);
+export async function fetchArchivedTopicNotes(topicId: string, isSubtopic = false): Promise<TopicNote[]> {
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const { data, error } = await supabase
+    .from('topic_notes')
+    .select('*')
+    .eq(column, topicId)
+    .eq('archived', true)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTopicNote(topicId: string, title: string, content = '', category = 'General', displayOrder = 0, isSubtopic = false): Promise<TopicNote> {
+  // Use subtopic_id for subtopics, topic_id for topics
+  const insertPayload = {
+    topic_id: isSubtopic ? null : topicId,
+    subtopic_id: isSubtopic ? topicId : null,
+    title,
+    content,
+    category,
+    display_order: displayOrder,
+  };
+
+  console.log('[NOTE] vault.createTopicNote - table: topic_notes');
+  console.log('[NOTE] vault.createTopicNote - isSubtopic:', isSubtopic);
+  console.log('[NOTE] vault.createTopicNote - INSERT query:', { table: 'topic_notes', payload: insertPayload });
   const { data, error } = await supabase.from('topic_notes').insert(insertPayload).select().single();
-  console.log('[VAULT DEBUG] createTopicNote result:', { data, error });
+  console.log('[NOTE] vault.createTopicNote - response data:', data);
+  console.log('[NOTE] vault.createTopicNote - response error:', error);
+  if (error) {
+    console.error('[NOTE ERROR] Supabase insert failed. Table: topic_notes. Error:', JSON.stringify(error));
+    throw error;
+  }
+  try {
+    await logActivity(isSubtopic ? 'subtopic' : 'topic', topicId, title, 'add_note', { note_id: data.id });
+  } catch (logErr) {
+    console.error('[NOTE ERROR] logActivity failed (non-fatal):', logErr);
+  }
+  return data;
+}
+
+export async function updateTopicNote(id: string, updates: Partial<Pick<TopicNote, 'title' | 'content' | 'category' | 'display_order' | 'tags' | 'color_label' | 'pinned' | 'favorite' | 'archived'>>): Promise<TopicNote> {
+  const { data, error } = await supabase.from('topic_notes').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
   if (error) throw error;
   return data;
 }
 
-export async function updateTopicNote(id: string, updates: Partial<Pick<TopicNote, 'title' | 'content' | 'category' | 'display_order'>>): Promise<TopicNote> {
-  const { data, error } = await supabase.from('topic_notes').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+export async function softDeleteTopicNote(id: string): Promise<void> {
+  const { error } = await supabase.from('topic_notes').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;
-  return data;
+}
+
+export async function restoreTopicNote(id: string): Promise<void> {
+  const { error } = await supabase.from('topic_notes').update({ deleted_at: null }).eq('id', id);
+  if (error) throw error;
 }
 
 export async function deleteTopicNote(id: string): Promise<void> {
@@ -737,20 +794,95 @@ export async function deleteTopicNote(id: string): Promise<void> {
   if (error) throw error;
 }
 
-// Questions
-export async function fetchTopicQuestions(topicId: string): Promise<TopicQuestion[]> {
-  const { data, error } = await supabase.from('topic_questions').select('*').eq('topic_id', topicId).order('display_order');
+// Note Version History
+export async function fetchNoteVersions(noteId: string): Promise<TopicNoteVersion[]> {
+  const { data, error } = await supabase
+    .from('topic_note_versions')
+    .select('*')
+    .eq('note_id', noteId)
+    .order('version_number', { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
-export async function createTopicQuestion(topicId: string, question: string, answer = '', difficulty: TopicQuestion['difficulty'] = 'Medium', status: TopicQuestion['status'] = 'Open', displayOrder = 0): Promise<TopicQuestion> {
-  const { data, error } = await supabase.from('topic_questions').insert({ topic_id: topicId, question, answer, difficulty, status, display_order: displayOrder }).select().single();
+export async function createNoteVersion(noteId: string, snapshot: { title: string; content: string; category: string; tags: string[]; version_number: number }): Promise<TopicNoteVersion> {
+  const { data, error } = await supabase
+    .from('topic_note_versions')
+    .insert({ note_id: noteId, ...snapshot, edited_by: 'You' })
+    .select().single();
   if (error) throw error;
   return data;
 }
 
-export async function updateTopicQuestion(id: string, updates: Partial<Pick<TopicQuestion, 'question' | 'answer' | 'difficulty' | 'status' | 'display_order'>>): Promise<TopicQuestion> {
+export async function restoreNoteVersion(noteId: string, versionId: string): Promise<TopicNote> {
+  const { data: version, error: vErr } = await supabase
+    .from('topic_note_versions')
+    .select('title, content, category, tags, version_number')
+    .eq('id', versionId)
+    .single();
+  if (vErr) throw vErr;
+  // Restore note content from the snapshot
+  const { data: note, error: nErr } = await supabase
+    .from('topic_notes')
+    .update({
+      title: version.title,
+      content: version.content,
+      category: version.category,
+      tags: version.tags,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', noteId)
+    .select().single();
+  if (nErr) throw nErr;
+  // Snapshot the restored state as a new version so history is continuous
+  await createNoteVersion(noteId, {
+    title: version.title, content: version.content, category: version.category,
+    tags: version.tags, version_number: version.version_number,
+  });
+  return note;
+}
+
+// Questions — expanded question bank with types, explanations, MCQ support
+export async function fetchTopicQuestions(topicId: string, isSubtopic = false): Promise<TopicQuestion[]> {
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const { data, error } = await supabase.from('topic_questions').select('*').eq(column, topicId).order('display_order');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTopicQuestion(
+  topicId: string,
+  question: string,
+  answer = '',
+  difficulty: TopicQuestion['difficulty'] = 'Medium',
+  status: TopicQuestion['status'] = 'Open',
+  displayOrder = 0,
+  questionType: QuestionType = 'Theory',
+  explanation = '',
+  options: string[] | null = null,
+  correctOption: number | null = null,
+  isSubtopic = false,
+): Promise<TopicQuestion> {
+  const payload = {
+    topic_id: isSubtopic ? null : topicId,
+    subtopic_id: isSubtopic ? topicId : null,
+    question,
+    answer,
+    difficulty,
+    status,
+    display_order: displayOrder,
+    question_type: questionType,
+    explanation,
+    options,
+    correct_option: correctOption,
+  };
+  const { data, error } = await supabase.from('topic_questions').insert(payload).select().single();
+  if (error) throw error;
+  await logActivity(isSubtopic ? 'subtopic' : 'topic', topicId, question, 'add_question', { question_id: data.id });
+  return data;
+}
+
+export async function updateTopicQuestion(id: string, updates: Partial<Pick<TopicQuestion, 'question' | 'answer' | 'difficulty' | 'status' | 'display_order' | 'question_type' | 'explanation' | 'options' | 'correct_option' | 'tags'>>): Promise<TopicQuestion> {
   const { data, error } = await supabase.from('topic_questions').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
   if (error) throw error;
   return data;
@@ -762,14 +894,24 @@ export async function deleteTopicQuestion(id: string): Promise<void> {
 }
 
 // Resources
-export async function fetchTopicResources(topicId: string): Promise<TopicResource[]> {
-  const { data, error } = await supabase.from('topic_resources').select('*').eq('topic_id', topicId).order('display_order');
+export async function fetchTopicResources(topicId: string, isSubtopic = false): Promise<TopicResource[]> {
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const { data, error } = await supabase.from('topic_resources').select('*').eq(column, topicId).order('display_order');
   if (error) throw error;
   return data ?? [];
 }
 
-export async function createTopicResource(topicId: string, title: string, url: string, resourceType: TopicResource['resource_type'] = 'Website', description = '', displayOrder = 0): Promise<TopicResource> {
-  const { data, error } = await supabase.from('topic_resources').insert({ topic_id: topicId, title, url, resource_type: resourceType, description, display_order: displayOrder }).select().single();
+export async function createTopicResource(topicId: string, title: string, url: string, resourceType: TopicResource['resource_type'] = 'Website', description = '', displayOrder = 0, isSubtopic = false): Promise<TopicResource> {
+  const payload = {
+    topic_id: isSubtopic ? null : topicId,
+    subtopic_id: isSubtopic ? topicId : null,
+    title,
+    url,
+    resource_type: resourceType,
+    description,
+    display_order: displayOrder,
+  };
+  const { data, error } = await supabase.from('topic_resources').insert(payload).select().single();
   if (error) throw error;
   return data;
 }
@@ -786,22 +928,46 @@ export async function deleteTopicResource(id: string): Promise<void> {
 }
 
 // Revisions
-export async function fetchTopicRevisions(topicId: string): Promise<TopicRevision[]> {
-  const { data, error } = await supabase.from('topic_revisions').select('*').eq('topic_id', topicId).order('revision_date', { ascending: false });
+export async function fetchTopicRevisions(topicId: string, isSubtopic = false): Promise<TopicRevision[]> {
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const { data, error } = await supabase.from('topic_revisions').select('*').eq(column, topicId).order('revision_date', { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
-export async function createTopicRevision(topicId: string, revisionDate: string, confidenceScore = 50, revisionNotes = ''): Promise<TopicRevision> {
-  const { data, error } = await supabase.from('topic_revisions').insert({ topic_id: topicId, revision_date: revisionDate, confidence_score: confidenceScore, revision_notes: revisionNotes }).select().single();
+export async function createTopicRevision(topicId: string, revisionDate: string, confidenceScore = 50, revisionNotes = '', isSubtopic = false): Promise<TopicRevision> {
+  // Spaced repetition: next revision interval grows with each revision
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const existing = await supabase.from('topic_revisions').select('id').eq(column, topicId);
+  const revisionNumber = (existing.data?.length ?? 0) + 1;
+  const intervalDays = computeSpacedRepetitionInterval(revisionNumber);
+  const nextDate = new Date(revisionDate);
+  nextDate.setDate(nextDate.getDate() + intervalDays);
+  const payload = {
+    topic_id: isSubtopic ? null : topicId,
+    subtopic_id: isSubtopic ? topicId : null,
+    revision_date: revisionDate,
+    confidence_score: confidenceScore,
+    revision_notes: revisionNotes,
+    next_revision_date: nextDate.toISOString().split('T')[0],
+    interval_days: intervalDays,
+  };
+  const { data, error } = await supabase.from('topic_revisions').insert(payload).select().single();
+  if (error) throw error;
+  await logActivity(isSubtopic ? 'subtopic' : 'topic', topicId, 'Revision', 'revise', { revision_id: data.id, revision_number: revisionNumber });
+  return data;
+}
+
+export async function updateTopicRevision(id: string, updates: Partial<Pick<TopicRevision, 'revision_date' | 'confidence_score' | 'revision_notes' | 'next_revision_date' | 'interval_days'>>): Promise<TopicRevision> {
+  const { data, error } = await supabase.from('topic_revisions').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
   if (error) throw error;
   return data;
 }
 
-export async function updateTopicRevision(id: string, updates: Partial<Pick<TopicRevision, 'revision_date' | 'confidence_score' | 'revision_notes'>>): Promise<TopicRevision> {
-  const { data, error } = await supabase.from('topic_revisions').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
-  if (error) throw error;
-  return data;
+// Spaced repetition schedule (SM-2 inspired simplified intervals)
+export function computeSpacedRepetitionInterval(revisionNumber: number): number {
+  const intervals = [1, 3, 7, 14, 30, 60, 90];
+  return intervals[Math.min(revisionNumber - 1, intervals.length - 1)] ?? 90;
 }
 
 export async function deleteTopicRevision(id: string): Promise<void> {
@@ -816,10 +982,26 @@ export async function fetchLearningStats(): Promise<{
   topicsPending: number;
   overallProgress: number;
   revisionsDue: number;
+  notesWritten: number;
+  questionsSolved: number;
+  attachmentsAdded: number;
+  aiChats: number;
+  weeklyProgress: number;
+  monthlyProgress: number;
 }> {
-  const [allTopics, todayRevisions] = await Promise.all([
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+  const monthAgo = new Date(now.getTime() - 30 * 86400000).toISOString();
+
+  const [allTopics, todayRevisions, allNotes, allQuestions, allAttachments, aiHistory, weekNotes, monthNotes] = await Promise.all([
     supabase.from('topics').select('status, progress').is('deleted_at', null).then(r => r.data ?? []),
     supabase.from('topic_revisions').select('revision_date').lte('revision_date', new Date().toISOString().split('T')[0]).then(r => r.data ?? []),
+    supabase.from('topic_notes').select('id').is('deleted_at', null).then(r => r.data ?? []),
+    supabase.from('topic_questions').select('status').eq('status', 'Solved').then(r => r.data ?? []),
+    supabase.from('topic_attachments').select('id').is('deleted_at', null).then(r => r.data ?? []),
+    supabase.from('topic_ai_history').select('id').then(r => r.data ?? []),
+    supabase.from('topic_notes').select('created_at').gte('created_at', weekAgo).is('deleted_at', null).then(r => r.data ?? []),
+    supabase.from('topic_notes').select('created_at').gte('created_at', monthAgo).is('deleted_at', null).then(r => r.data ?? []),
   ]);
 
   const completed = allTopics.filter((t: { status: string }) => t.status === 'Completed' || t.status === 'Revised' || t.status === 'Mastered').length;
@@ -831,7 +1013,16 @@ export async function fetchLearningStats(): Promise<{
   const revisionTopicIds = new Set(todayRevisions.map((r: { revision_date: string }) => r.revision_date));
   const revisionsDue = revisionTopicIds.size;
 
-  return { topicsCompleted: completed, topicsLearning: learning, topicsPending: pending, overallProgress, revisionsDue };
+  return {
+    topicsCompleted: completed, topicsLearning: learning, topicsPending: pending,
+    overallProgress, revisionsDue,
+    notesWritten: allNotes.length,
+    questionsSolved: allQuestions.length,
+    attachmentsAdded: allAttachments.length,
+    aiChats: aiHistory.length,
+    weeklyProgress: weekNotes.length,
+    monthlyProgress: monthNotes.length,
+  };
 }
 
 // ─── Topic Code ────────────────────────────────────────────────
@@ -881,6 +1072,171 @@ export async function updateTopicHighlight(id: string, updates: Partial<Pick<Top
 
 export async function deleteTopicHighlight(id: string): Promise<void> {
   const { error } = await supabase.from('topic_highlights').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Topic Attachments ─────────────────────────────────────────
+
+export async function exportTopicMarkdown(topicId: string, topicName: string): Promise<string> {
+  const [notes, questions, resources, revisions] = await Promise.all([
+    fetchTopicNotes(topicId).catch(() => []),
+    fetchTopicQuestions(topicId).catch(() => []),
+    fetchTopicResources(topicId).catch(() => []),
+    fetchTopicRevisions(topicId).catch(() => []),
+  ]);
+  let md = `# ${topicName}\n\n`;
+  md += `> Exported: ${new Date().toLocaleString()}\n\n`;
+  if (notes.length > 0) {
+    md += `## Notes (${notes.length})\n\n`;
+    for (const n of notes) {
+      md += `### ${n.title}\n*Created: ${new Date(n.created_at).toLocaleString()} | Category: ${n.category} | Tags: ${n.tags.join(', ')}*\n\n${n.content}\n\n---\n\n`;
+    }
+  }
+  if (questions.length > 0) {
+    md += `## Questions (${questions.length})\n\n`;
+    for (const q of questions) {
+      md += `**[${q.question_type}] ${q.question}**\n- Difficulty: ${q.difficulty} | Status: ${q.status}\n- Answer: ${q.answer}\n${q.explanation ? `- Explanation: ${q.explanation}\n` : ''}\n`;
+    }
+  }
+  if (resources.length > 0) {
+    md += `## Resources (${resources.length})\n\n`;
+    for (const r of resources) md += `- [${r.title}](${r.url}) (${r.resource_type})${r.description ? ' - ' + r.description : ''}\n`;
+    md += '\n';
+  }
+  if (revisions.length > 0) {
+    md += `## Revisions (${revisions.length})\n\n`;
+    for (const r of revisions) md += `- ${r.revision_date} | Confidence: ${r.confidence_score}%${r.revision_notes ? ' | ' + r.revision_notes : ''}\n`;
+    md += '\n';
+  }
+  return md;
+}
+
+export async function exportTopicCSV(topicId: string): Promise<string> {
+  const notes = await fetchTopicNotes(topicId).catch(() => []);
+  const rows = [['ID', 'Title', 'Category', 'Created', 'Updated', 'Tags', 'Pinned', 'Favorite', 'Archived', 'Content']];
+  for (const n of notes) {
+    rows.push([
+      n.id, n.title.replace(/"/g, '""'), n.category,
+      new Date(n.created_at).toISOString(), new Date(n.updated_at).toISOString(),
+      n.tags.join(';'), String(n.pinned), String(n.favorite), String(n.archived),
+      n.content.replace(/"/g, '""').replace(/\n/g, ' '),
+    ]);
+  }
+  return rows.map(r => `"${r.join('","')}"`).join('\n');
+}
+
+// ─── Topic Attachments (CRUD) ──────────────────────────────────
+
+export async function fetchTopicAttachments(topicId: string, isSubtopic = false): Promise<TopicAttachment[]> {
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const { data, error } = await supabase
+    .from('topic_attachments')
+    .select('*')
+    .eq(column, topicId)
+    .is('deleted_at', null)
+    .order('display_order');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTopicAttachment(
+  topicId: string,
+  filename: string,
+  fileType: AttachmentType,
+  fileUrl: string,
+  fileSizeBytes: number | null = null,
+  mimeType: string | null = null,
+  noteId: string | null = null,
+  isSubtopic = false,
+): Promise<TopicAttachment> {
+  const payload = {
+    topic_id: isSubtopic ? null : topicId,
+    subtopic_id: isSubtopic ? topicId : null,
+    note_id: noteId,
+    filename,
+    file_type: fileType,
+    file_url: fileUrl,
+    file_size_bytes: fileSizeBytes,
+    mime_type: mimeType,
+  };
+  const { data, error } = await supabase.from('topic_attachments').insert(payload).select().single();
+  if (error) throw error;
+  await logActivity(isSubtopic ? 'subtopic' : 'topic', topicId, filename, 'add_attachment', { attachment_id: data.id });
+  return data;
+}
+
+export async function updateTopicAttachment(id: string, updates: Partial<Pick<TopicAttachment, 'filename' | 'file_type' | 'file_url' | 'note_id'>>): Promise<TopicAttachment> {
+  const { data, error } = await supabase.from('topic_attachments').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTopicAttachment(id: string): Promise<void> {
+  const { error } = await supabase.from('topic_attachments').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Topic AI History ──────────────────────────────────────────
+
+export async function fetchTopicAIHistory(topicId: string, isSubtopic = false): Promise<TopicAIHistory[]> {
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const { data, error } = await supabase
+    .from('topic_ai_history')
+    .select('*')
+    .eq(column, topicId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTopicAIHistory(topicId: string, action: AIAction, prompt: string, response: string, isSubtopic = false): Promise<TopicAIHistory> {
+  const payload = {
+    topic_id: isSubtopic ? null : topicId,
+    subtopic_id: isSubtopic ? topicId : null,
+    action,
+    prompt,
+    response,
+  };
+  const { data, error } = await supabase.from('topic_ai_history').insert(payload).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTopicAIHistory(id: string): Promise<void> {
+  const { error } = await supabase.from('topic_ai_history').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Topic Bookmarks ───────────────────────────────────────────
+
+export async function fetchTopicBookmarks(topicId: string, isSubtopic = false): Promise<TopicBookmark[]> {
+  const column = isSubtopic ? 'subtopic_id' : 'topic_id';
+  const { data, error } = await supabase
+    .from('topic_bookmarks')
+    .select('*')
+    .eq(column, topicId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTopicBookmark(topicId: string, title: string, url: string, category: TopicBookmarkCategory = 'Link', description = '', isSubtopic = false): Promise<TopicBookmark> {
+  const payload = {
+    topic_id: isSubtopic ? null : topicId,
+    subtopic_id: isSubtopic ? topicId : null,
+    title,
+    url,
+    category,
+    description,
+  };
+  const { data, error } = await supabase.from('topic_bookmarks').insert(payload).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTopicBookmark(id: string): Promise<void> {
+  const { error } = await supabase.from('topic_bookmarks').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -1003,10 +1359,8 @@ export async function importSyllabusText(text: string): Promise<void> {
   };
 
   // Get current max display orders
-  const [existingSubjects, existingModules, existingTopics] = await Promise.all([
+  const [existingSubjects] = await Promise.all([
     supabase.from('subjects').select('display_order').order('display_order', { ascending: false }).limit(1),
-    supabase.from('modules').select('display_order').order('display_order', { ascending: false }).limit(1),
-    supabase.from('topics').select('display_order').order('display_order', { ascending: false }).limit(1),
   ]);
   let subjectOrder = (existingSubjects.data?.[0]?.display_order ?? -1) + 1;
   let moduleOrder = 0;
@@ -1183,6 +1537,21 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult[]>
   const { data: highlights } = await supabase.from('topic_highlights').select('id, content, tags, highlight_type, topic_id, topics!inner(name)').ilike('content', `%${q}%`).limit(10);
   (highlights ?? []).forEach((h: any) => {
     results.push({ type: 'highlight', id: h.id, title: h.content.slice(0, 60) + (h.content.length > 60 ? '...' : ''), subtitle: `${h.highlight_type} - ${h.topics?.name}`, tags: h.tags || [], matchedField: 'content' });
+  });
+
+  const { data: attachments } = await supabase.from('topic_attachments').select('id, filename, file_type, topic_id, topics!inner(name)').ilike('filename', `%${q}%`).is('deleted_at', null).limit(10);
+  (attachments ?? []).forEach((a: any) => {
+    results.push({ type: 'attachment', id: a.id, title: a.filename, subtitle: `${a.file_type} - ${a.topics?.name}`, tags: [], matchedField: 'filename' });
+  });
+
+  const { data: tbk } = await supabase.from('topic_bookmarks').select('id, title, url, category, topic_id, topics!inner(name)').or(`title.ilike.%${q}%,url.ilike.%${q}%`).limit(10);
+  (tbk ?? []).forEach((b: any) => {
+    results.push({ type: 'bookmark', id: b.id, title: b.title, subtitle: `${b.category} - ${b.topics?.name}`, tags: [], matchedField: 'title' });
+  });
+
+  const { data: papers } = await supabase.from('research_papers').select('id, title, authors, tags').or(`title.ilike.%${q}%,summary.ilike.%${q}%`).limit(10);
+  (papers ?? []).forEach((p: any) => {
+    results.push({ type: 'paper', id: p.id, title: p.title, subtitle: p.authors, tags: p.tags || [], matchedField: 'title' });
   });
 
   return results;
